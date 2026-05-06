@@ -69,12 +69,20 @@ export async function sendBotMessage(
   conversationId: number,
   content: string,
   isPrivate = false,
-): Promise<void> {
-  await http.post(`/conversations/${conversationId}/messages`, {
+): Promise<number | null> {
+  const { data } = await http.post<{ id: number }>(`/conversations/${conversationId}/messages`, {
     content,
     message_type: 'outgoing',
     private: isPrivate,
   });
+  return data?.id ?? null;
+}
+
+export async function getConversationContactId(conversationId: number): Promise<number | null> {
+  const { data } = await http.get<{ meta?: { sender?: { id?: number } } }>(
+    `/conversations/${conversationId}`,
+  );
+  return data?.meta?.sender?.id ?? null;
 }
 
 export async function sendIncomingMessage(

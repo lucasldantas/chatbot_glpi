@@ -18,6 +18,7 @@ export async function sendMenu(phone: string): Promise<void> {
       '1️⃣ - Abrir Novo Chamado',
       '2️⃣ - Consultar Meus Chamados',
       '3️⃣ - Onboarding / Primeiro Acesso',
+      '0️⃣ - Sair',
       '',
       'Responda com o número da opção desejada:',
     ].join('\n'),
@@ -40,6 +41,15 @@ export async function handleMenuChoice(phone: string, text: string): Promise<voi
     await sessionStore.updateState(phone, 'CONSULTING_TICKETS');
     const { showTicketList } = await import('./consult-tickets.flow');
     await showTicketList(phone);
+    return;
+  }
+
+  if (choice === '0') {
+    await evolution.sendText(
+      phone,
+      '👋 Até logo! Se precisar de ajuda, é só me chamar. Bom trabalho! 😊',
+    );
+    await sessionStore.deleteSession(phone);
     return;
   }
 

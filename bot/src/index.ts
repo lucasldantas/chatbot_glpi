@@ -2,7 +2,6 @@ import express from 'express';
 import { config } from './config';
 import { connect as connectRedis } from './session/redis';
 import { handleEvolutionWebhook } from './webhooks/evolution.webhook';
-import { handleGlpiWebhook } from './webhooks/glpi.webhook';
 import { handleChatwootWebhook } from './webhooks/chatwoot.webhook';
 
 const app = express();
@@ -11,7 +10,6 @@ app.use(express.json({ limit: '10mb' }));
 
 // ─── Webhooks ──────────────────────────────────────────────────────────────────
 app.post('/webhook/evolution', handleEvolutionWebhook);
-app.post('/webhook/glpi', handleGlpiWebhook);
 app.post('/webhook/chatwoot', handleChatwootWebhook);
 
 // ─── Health check ──────────────────────────────────────────────────────────────

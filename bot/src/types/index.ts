@@ -37,8 +37,8 @@ export interface Session {
   state: BotState;
   user: UserData;
   ticketDraft: TicketDraft;
-  csatTicketId?: number;
   chatwootContactId?: number;
+  csatConversationId?: number;
   lastActivityAt: number;
 }
 

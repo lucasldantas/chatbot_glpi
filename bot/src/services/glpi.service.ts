@@ -43,25 +43,32 @@ async function authHeaders(): Promise<Record<string, string>> {
 export async function findUserByEmail(email: string): Promise<GLPIUser | null> {
   const headers = await authHeaders();
 
-  // /search retorna chaves numéricas: 1=id, 2=name(login), 9=firstname, 34=realname
+  // /search retorna chaves numéricas: 1=id, 2=name(login), 5=email, 9=firstname, 34=realname
   const { data } = await http.get<{ data: Array<Record<string, unknown>>; count: number }>('/search/User', {
     headers,
     params: {
       'criteria[0][field]': 5,
       'criteria[0][searchtype]': 'contains',
       'criteria[0][value]': email,
-      range: '0-1',
+      range: '0-9',
       'forcedisplay[0]': 1,  // id
       'forcedisplay[1]': 2,  // name (login)
-      'forcedisplay[2]': 9,  // firstname
-      'forcedisplay[3]': 34, // realname
+      'forcedisplay[2]': 5,  // email
+      'forcedisplay[3]': 9,  // firstname
+      'forcedisplay[4]': 34, // realname
     },
   });
 
   if (!data?.data || data.data.length === 0) return null;
-  const row = data.data[0];
-  // field "2" = ID no retorno do /search/User
-  const userId = row[2] as number;
+
+  // Validação exata: descarta resultados onde o e-mail do GLPI não bate exatamente
+  const typedEmail = email.toLowerCase();
+  const exactRow = data.data.find(
+    (row) => (row[5] as string)?.toLowerCase() === typedEmail,
+  );
+  if (!exactRow) return null;
+
+  const userId = exactRow[2] as number;
   return getUserById(userId);
 }
 
@@ -118,9 +125,13 @@ export async function createTicket(input: CreateTicketInput): Promise<GLPITicket
     ].join('\n');
   }
 
+  console.log('[GLPI] criando ticket — input:', JSON.stringify(ticketInput));
+
   const { data } = await http.post<{ id: number; message: string }>('/Ticket', {
     input: ticketInput,
   }, { headers });
+
+  console.log('[GLPI] resposta:', JSON.stringify(data));
 
   return { id: data.id, ...ticketInput } as unknown as GLPITicket;
 }
@@ -169,54 +180,55 @@ export async function getTicketById(ticketId: number): Promise<GLPITicket | null
 export async function searchKnowledgeBase(keywords: string): Promise<GLPIKBArticle[]> {
   const headers = await authHeaders();
 
-  const { data } = await http.get('/search/KnowledgebaseItem', {
-    headers,
-    params: {
-      'criteria[0][field]': 1,   // name
-      'criteria[0][searchtype]': 'contains',
-      'criteria[0][value]': keywords,
-      'criteria[1][link]': 'OR',
-      'criteria[1][field]': 6,   // answer/content
-      'criteria[1][searchtype]': 'contains',
-      'criteria[1][value]': keywords,
-      'forcedisplay[0]': 1,  // id
-      'forcedisplay[1]': 2,  // name
-      'forcedisplay[2]': 6,  // answer
-      'range': '0-9',
-    },
-  });
+  // Campo 1=Assunto, campo 2=ID, campo 7=Conteúdo (conforme listSearchOptions/KnowbaseItem)
+  const words = keywords.split(/\s+/).filter((w) => w.length > 2);
+  if (words.length === 0) return [];
+
+  const params: Record<string, unknown> = {
+    'forcedisplay[0]': 2, // id
+    'forcedisplay[1]': 1, // name/assunto
+    'forcedisplay[2]': 7, // answer/conteúdo
+    'range': '0-9',
+  };
+
+  let idx = 0;
+  for (const word of words) {
+    if (idx > 0) params[`criteria[${idx}][link]`] = 'OR';
+    params[`criteria[${idx}][field]`] = 1;
+    params[`criteria[${idx}][searchtype]`] = 'contains';
+    params[`criteria[${idx}][value]`] = word;
+    idx++;
+
+    params[`criteria[${idx}][link]`] = 'OR';
+    params[`criteria[${idx}][field]`] = 7;
+    params[`criteria[${idx}][searchtype]`] = 'contains';
+    params[`criteria[${idx}][value]`] = word;
+    idx++;
+  }
+
+  console.log('[KB] params:', JSON.stringify(params));
+  const { data } = await http.get('/search/KnowbaseItem', { headers, params });
+  console.log('[KB] resposta:', JSON.stringify(data));
 
   interface KBResponse { data?: Array<Record<string, unknown>>; totalcount?: number }
   const result = data as KBResponse;
   if (!result.data) return [];
 
   return result.data.map((row) => ({
-    id: row[1] as number,
-    name: row[2] as string,
-    answer: (row[6] ?? '') as string,
+    id: row[2] as number,
+    name: row[1] as string,
+    answer: (row[7] ?? '') as string,
     is_faq: 0,
     view: 0,
   }));
-}
-
-// ─── CSAT ─────────────────────────────────────────────────────────────────────
-
-export async function saveCsatScore(ticketId: number, score: number, scale: number): Promise<void> {
-  const headers = await authHeaders();
-
-  await http.post('/ITILFollowup', {
-    input: {
-      itemtype: 'Ticket',
-      items_id: ticketId,
-      content: `⭐ Avaliação CSAT: ${score}/${scale}\nColetado via WhatsApp Bot`,
-      is_private: 1,
-      requesttypes_id: 1,
-    },
-  }, { headers });
 }
 
 // ─── URL de um ticket ─────────────────────────────────────────────────────────
 
 export function ticketUrl(ticketId: number): string {
   return `${config.glpi.url}/front/ticket.form.php?id=${ticketId}`;
+}
+
+export function kbArticleUrl(articleId: number): string {
+  return `${config.glpi.url}/front/knowbaseitem.form.php?id=${articleId}`;
 }

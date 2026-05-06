@@ -77,11 +77,11 @@ export async function handleChatwootWebhook(req: Request, res: Response): Promis
     await sessionStore.saveSession(phone, session);
     await evolution.sendText(
       evolution.toJid(phone),
-      '✅ Seu atendimento foi concluído pelo nosso analista.\n\nEspero que tudo tenha sido resolvido da melhor forma! Se precisar de qualquer outra ajuda com a tecnologia no seu dia a dia, é só me chamar por aqui. Bom trabalho! 😊🚀',
+      '✅ Seu atendimento foi concluído pelo nosso analista.\n\nEspero que tudo tenha sido resolvido da melhor forma! 😊',
     ).catch(console.error);
 
-    const { sendMenu } = await import('../flows/menu.flow');
-    await sendMenu(evolution.toJid(phone)).catch(console.error);
+    const { sendCsatRequest } = await import('../flows/csat.flow');
+    await sendCsatRequest(phone, conversationId!).catch(console.error);
   }
 }
 

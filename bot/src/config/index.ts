@@ -44,7 +44,4 @@ export const config = {
     model: optional('CLAUDE_MODEL', 'claude-sonnet-4-6'),
   },
 
-  csat: {
-    scale: parseInt(optional('CSAT_SCALE', '5'), 10),
-  },
 } as const;

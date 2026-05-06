@@ -185,6 +185,14 @@ services:
       GLPI_URL: ${GLPI_URL}
       GLPI_APP_TOKEN: ${GLPI_APP_TOKEN}
       GLPI_USER_TOKEN: ${GLPI_USER_TOKEN}
+      GLPI_DEFAULT_CATEGORY_ID: ${GLPI_DEFAULT_CATEGORY_ID:-0}
+      GLPI_ONBOARDING_CATEGORY_ID: ${GLPI_ONBOARDING_CATEGORY_ID:-0}
+
+      # Chatwoot DB — apenas para submeter CSAT ao relatório nativo
+      CHATWOOT_DB_HOST: postgres
+      CHATWOOT_DB_USER: chatwoot
+      CHATWOOT_DB_PASSWORD: ${CHATWOOT_DB_PASSWORD}
+      CHATWOOT_DB_NAME: chatwoot_production
 
       # ChatWoot
       CHATWOOT_URL: http://chatwoot-web:3000

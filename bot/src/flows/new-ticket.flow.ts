@@ -57,6 +57,7 @@ export async function handleDescription(
     const kbResult = await claudeService.searchKnowledgeBase(fullQuery, articles);
 
     if (kbResult.found && kbResult.summary) {
+      const articleLink = kbResult.articleId ? glpi.kbArticleUrl(kbResult.articleId) : null;
       await evolution.sendText(
         phone,
         [
@@ -66,6 +67,7 @@ export async function handleDescription(
           '',
           kbResult.summary,
           '',
+          ...(articleLink ? [`🔗 Artigo completo: ${articleLink}`, ''] : []),
           '─'.repeat(30),
           '',
           'Isso resolveu sua dúvida?',
@@ -75,8 +77,9 @@ export async function handleDescription(
       );
       return;
     }
-  } catch (err) {
-    console.error('[KB Search] erro:', err);
+  } catch (err: unknown) {
+    const axiosErr = err as { response?: { data?: unknown; status?: number } };
+    console.error('[KB Search] erro status:', axiosErr?.response?.status, 'body:', JSON.stringify(axiosErr?.response?.data));
     // Prossegue para abertura de chamado em caso de erro na busca
   }
 

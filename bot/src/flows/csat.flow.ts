@@ -1,36 +1,21 @@
 import * as evolution from '../services/evolution.service';
-import * as glpi from '../services/glpi.service';
+import * as chatwoot from '../services/chatwoot.service';
+import * as chatwootDb from '../services/chatwoot-db.service';
 import * as sessionStore from '../session/redis';
-import { config } from '../config';
-import { toJid } from '../services/evolution.service';
 import type { Session } from '../types';
 
-const SCALE = config.csat.scale; // 5 por padrão
-
-export async function sendCsatRequest(phone: string, ticketId: number): Promise<void> {
-  let session = await sessionStore.getSession(phone);
-  if (!session) {
-    session = sessionStore.createSession(phone);
-  }
+export async function sendCsatRequest(phone: string, conversationId: number): Promise<void> {
+  const session = await sessionStore.getSession(phone);
+  if (!session) return;
 
   session.state = 'WAITING_CSAT';
-  session.csatTicketId = ticketId;
+  session.csatConversationId = conversationId;
+  session.ticketDraft = {};
   await sessionStore.saveSession(phone, session);
 
-  const stars = Array.from({ length: SCALE }, (_, i) => `${i + 1}⭐`).join('  ');
-
   await evolution.sendText(
-    toJid(phone),
-    [
-      `✅ *Seu chamado #${ticketId} foi resolvido!*`,
-      '',
-      'Como você avalia o atendimento recebido?',
-      '',
-      stars,
-      '',
-      `Responda com um número de *1* a *${SCALE}*:`,
-      `(1 = Péssimo  |  ${SCALE} = Excelente)`,
-    ].join('\n'),
+    evolution.toJid(phone),
+    '⭐ *Pesquisa de satisfação*\n\nDe *1 a 10*, como você avalia o atendimento que recebeu?\n\n_(Digite apenas o número)_',
   );
 }
 
@@ -41,48 +26,47 @@ export async function handleCsatResponse(
 ): Promise<void> {
   const score = parseInt(text.trim(), 10);
 
-  if (isNaN(score) || score < 1 || score > SCALE) {
-    const stars = Array.from({ length: SCALE }, (_, i) => String(i + 1)).join(', ');
+  if (isNaN(score) || score < 1 || score > 10) {
     await evolution.sendText(
-      phone,
-      `❌ Resposta inválida. Por favor, digite um número entre 1 e ${SCALE} (${stars}):`,
+      evolution.toJid(phone),
+      'Por favor, envie apenas um número de *1 a 10*.',
     );
     return;
   }
 
-  if (!session.csatTicketId) {
-    await sessionStore.updateState(phone, 'MENU');
-    return;
-  }
-
-  try {
-    await glpi.saveCsatScore(session.csatTicketId, score, SCALE);
-  } catch (err) {
-    console.error('[CSAT] erro ao salvar no GLPI:', err);
-  }
-
-  const emoji = score >= SCALE ? '🌟' : score >= Math.ceil(SCALE / 2) ? '😊' : '😔';
-  const msg =
-    score >= SCALE
-      ? 'Que ótimo! Fico muito feliz em ter ajudado! 🎉'
-      : score >= Math.ceil(SCALE / 2)
-        ? 'Obrigado pelo feedback! Vamos continuar melhorando. 💪'
-        : 'Que pena! Vamos trabalhar para melhorar nosso atendimento. 🙏';
+  const emoji = score >= 9 ? '😄' : score >= 7 ? '🙂' : score >= 5 ? '😐' : '😕';
 
   await evolution.sendText(
-    phone,
-    [
-      `${emoji} Avaliação registrada: *${score}/${SCALE}*`,
-      '',
-      msg,
-      '',
-      'Se precisar de mais ajuda, é só chamar! 👋',
-    ].join('\n'),
+    evolution.toJid(phone),
+    `${emoji} Obrigado pela avaliação! Você deu nota *${score}/10*.\n\nSua opinião é muito importante para continuarmos melhorando. Até a próxima! 👋`,
   );
 
-  // Reseta a sessão para o menu
+  if (session.csatConversationId) {
+    const convId = session.csatConversationId;
+
+    // Nota privada — sempre salva; retorna messageId para o relatório
+    const messageId = await chatwoot.sendBotMessage(
+      convId,
+      `⭐ Avaliação CSAT: ${score}/10 — coletado via WhatsApp`,
+      true,
+    ).catch((err) => { console.error('[CSAT] erro nota privada:', err); return null; });
+
+    // Tenta registrar no relatório nativo do Chatwoot (falha silenciosamente)
+    if (messageId) {
+      const contactId =
+        session.chatwootContactId ??
+        await chatwoot.getConversationContactId(convId).catch(() => null);
+
+      if (contactId) {
+        await chatwootDb.submitCsatToReport({ conversationId: convId, messageId, contactId, score })
+          .catch(console.error);
+      } else {
+        console.warn('[CSAT] contactId não encontrado para conv', convId);
+      }
+    }
+  }
+
   session.state = 'MENU';
-  session.csatTicketId = undefined;
-  session.ticketDraft = {};
+  session.csatConversationId = undefined;
   await sessionStore.saveSession(phone, session);
 }

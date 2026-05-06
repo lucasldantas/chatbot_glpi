@@ -33,7 +33,7 @@ Responda SEMPRE em JSON válido com o formato:
 
 Regras:
 - "found" = true SOMENTE se um artigo responde DIRETAMENTE e de forma COMPLETA à dúvida
-- "summary" deve ser uma explicação concisa e clara em português (máx 3 parágrafos) baseada no artigo
+- "summary" deve listar os passos práticos do artigo de forma didática, numerada e em português simples (ex: "1. Pressione Command+K..."). Máx 8 itens. Não use parágrafos — use lista numerada.
 - Se nenhum artigo for adequado, retorne found: false com os outros campos null`,
     messages: [
       {
@@ -74,7 +74,7 @@ export async function extractKeywords(text: string): Promise<string> {
     model: config.anthropic.model,
     max_tokens: 100,
     system:
-      'Extraia as 3 palavras-chave mais relevantes do texto para busca em base de conhecimento de TI. Retorne apenas as palavras separadas por espaço, sem pontuação.',
+      'Extraia as 5 palavras-chave mais relevantes do texto para busca em base de conhecimento de TI. Retorne apenas as palavras separadas por espaço, sem pontuação, sem artigos ou preposições.',
     messages: [{ role: 'user', content: text }],
   });
 
