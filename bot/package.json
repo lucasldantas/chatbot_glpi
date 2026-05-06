@@ -1,0 +1,26 @@
+{
+  "name": "glpi-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "Bot WhatsApp integrado ao GLPI via Evolution API e ChatWoot",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.94.0",
+    "axios": "^1.7.9",
+    "express": "^4.21.2",
+    "form-data": "^4.0.1",
+    "ioredis": "^5.4.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/form-data": "^2.5.0",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

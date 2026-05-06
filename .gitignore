@@ -1,0 +1,15 @@
+# Secrets e configuração local
+.env
+scripts/init-db.sql
+
+# Dependências e build do bot
+bot/node_modules/
+bot/dist/
+
+# Código-fonte de terceiros baixado pelo install.sh em tempo de instalação
+evolution-api-src/
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+*.log
