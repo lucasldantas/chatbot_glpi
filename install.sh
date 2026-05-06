@@ -307,9 +307,6 @@ print_info "Tempo (em segundos) que a sessão do usuário fica ativa sem intera�
 print_info "3600 = 1 hora | 7200 = 2 horas | 86400 = 24 horas"
 ask_optional SESSION_TTL_SECONDS "Timeout da sessão (segundos)" "3600"
 
-echo
-print_info "Escala de avaliação do CSAT: 5 = notas de 1 a 5."
-ask_optional CSAT_SCALE "Escala do CSAT (1 a N)" "5"
 
 # ═════════════════════════════════════════════════════════════════════════════
 # RESUMO
@@ -419,6 +416,7 @@ print_ok ".env salvo em: $ENV_FILE"
 # ─────────────────────────────────────────────────────────────────────────────
 # Atualiza scripts/init-db.sql com as senhas configuradas
 # ─────────────────────────────────────────────────────────────────────────────
+mkdir -p "$SCRIPT_DIR/scripts"
 INIT_SQL="$SCRIPT_DIR/scripts/init-db.sql"
 
 cat > "$INIT_SQL" <<EOF
