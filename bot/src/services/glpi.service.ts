@@ -181,7 +181,7 @@ export async function getTicketById(ticketId: number): Promise<GLPITicket | null
 export async function searchKnowledgeBase(keywords: string): Promise<GLPIKBArticle[]> {
   const headers = await authHeaders();
 
-  // Campo 1=Assunto, campo 2=ID, campo 7=Conteúdo (conforme listSearchOptions/KnowbaseItem)
+  // Campo 1=Assunto, 2=ID, 7=Conteúdo, 8=is_faq (conforme listSearchOptions/KnowbaseItem)
   const words = keywords.split(/\s+/).filter((w) => w.length > 2);
   if (words.length === 0) return [];
 
@@ -189,9 +189,12 @@ export async function searchKnowledgeBase(keywords: string): Promise<GLPIKBArtic
     'forcedisplay[0]': 2, // id
     'forcedisplay[1]': 1, // name/assunto
     'forcedisplay[2]': 7, // answer/conteúdo
-    'range': '0-9',
+    'forcedisplay[3]': 8, // is_faq
+    // Range maior para compensar o post-filter de is_faq
+    'range': '0-29',
   };
 
+  // Busca por palavra individual com OR entre assunto e conteúdo
   let idx = 0;
   for (const word of words) {
     if (idx > 0) params[`criteria[${idx}][link]`] = 'OR';
@@ -215,13 +218,22 @@ export async function searchKnowledgeBase(keywords: string): Promise<GLPIKBArtic
   const result = data as KBResponse;
   if (!result.data) return [];
 
-  return result.data.map((row) => ({
-    id: row[2] as number,
-    name: row[1] as string,
-    answer: (row[7] ?? '') as string,
-    is_faq: 0,
-    view: 0,
-  }));
+  // Post-filter: exibe apenas artigos marcados como FAQ (is_faq = 1, campo 30)
+  // Artigos internos de técnicos (is_faq = 0) ficam invisíveis para os usuários
+  return result.data
+    .filter((row) => {
+      const isFaq = row[8];
+      // Se o campo não vier na resposta (versão GLPI diferente), inclui por segurança
+      if (isFaq === undefined) return true;
+      return isFaq == 1;
+    })
+    .map((row) => ({
+      id: row[2] as number,
+      name: row[1] as string,
+      answer: (row[7] ?? '') as string,
+      is_faq: 1,
+      view: 0,
+    }));
 }
 
 // ─── URL de um ticket ─────────────────────────────────────────────────────────
