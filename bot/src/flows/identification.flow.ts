@@ -1,9 +1,13 @@
 import * as evolution from '../services/evolution.service';
 import * as glpi from '../services/glpi.service';
+import * as jumpcloud from '../services/jumpcloud.service';
 import * as sessionStore from '../session/redis';
+import { config } from '../config';
 import type { Session } from '../types';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_CPF_ATTEMPTS = 3;
+const MSG_ACCESS_PROBLEM = '⚠️ Houve um problema com seu acesso, contate o seu gestor.';
 
 export async function start(phone: string): Promise<void> {
   let session = await sessionStore.getSession(phone);
@@ -14,7 +18,7 @@ export async function start(phone: string): Promise<void> {
 
   await evolution.sendText(
     phone,
-    '🐸 Olá! Eu sou o *Kermit*, seu assistente virtual de TI da Arco!\n\nEstou aqui para garantir que a sua tecnologia funcione sem interrupções. Como posso te ajudar hoje?',
+    `👋 Olá! Eu sou o *${config.bot.botName}*, assistente virtual de ${config.bot.supportTeam} da *${config.bot.companyName}*!\n\nEstou aqui para garantir que a sua tecnologia funcione sem interrupções. Como posso te ajudar hoje?`,
   );
   await evolution.sendText(
     phone,
@@ -35,24 +39,128 @@ export async function handleEmailInput(phone: string, text: string): Promise<voi
 
   await evolution.sendText(phone, '🔍 Verificando seu cadastro...');
 
+  if (config.jumpcloud.enabled) {
+    // ── Modo JumpCloud: valida JC (existe + ativo + CPF) → GLPI ────────────────
+    await handleWithJumpCloud(phone, email);
+  } else {
+    // ── Modo GLPI: valida apenas no GLPI ───────────────────────────────────────
+    await handleGlpiOnly(phone, email);
+  }
+}
+
+// ─── Fluxo com JumpCloud ──────────────────────────────────────────────────────
+
+async function handleWithJumpCloud(phone: string, email: string): Promise<void> {
+  const jcResult = await jumpcloud.findActiveUserByEmail(email);
+
+  if (!jcResult.exists) {
+    await evolution.sendText(phone, `❌ E-mail *${email}* não encontrado no sistema.`);
+    await sessionStore.deleteSession(phone);
+    return;
+  }
+
+  if (!jcResult.active) {
+    await evolution.sendText(phone, MSG_ACCESS_PROBLEM);
+    await sessionStore.deleteSession(phone);
+    return;
+  }
+
+  if (!jcResult.cpfLast4) {
+    await evolution.sendText(phone, MSG_ACCESS_PROBLEM);
+    await sessionStore.deleteSession(phone);
+    return;
+  }
+
   const user = await glpi.findUserByEmail(email);
 
-  if (user) {
-    const firstName = user.firstname?.trim();
-    const fullName = [user.firstname, user.realname].filter(Boolean).join(' ').trim() || user.name;
-    const greeting = firstName || fullName;
+  if (!user) {
+    await evolution.sendText(phone, `❌ E-mail *${email}* não encontrado no sistema.`);
+    await sessionStore.deleteSession(phone);
+    return;
+  }
 
-    await sessionStore.updateUser(phone, {
-      glpiUserId: user.id,
-      name: fullName,
-      email,
-      isAnonymous: false,
-    });
+  const fullName = [user.firstname, user.realname].filter(Boolean).join(' ').trim() || user.name;
+
+  await sessionStore.updateUser(phone, {
+    glpiUserId: user.id,
+    name: fullName,
+    email,
+    isAnonymous: false,
+  });
+
+  const session = await sessionStore.getSession(phone);
+  if (session) {
+    session.cpfAttempts = 0;
+    (session as Session & { _cpfLast4?: string })._cpfLast4 = jcResult.cpfLast4;
+    await sessionStore.saveSession(phone, session);
+  }
+
+  await sessionStore.updateState(phone, 'WAITING_CPF');
+  await evolution.sendText(
+    phone,
+    '🔑 Para confirmar sua identidade, informe os *4 últimos dígitos do seu CPF*:',
+  );
+}
+
+// ─── Fluxo somente GLPI ───────────────────────────────────────────────────────
+
+async function handleGlpiOnly(phone: string, email: string): Promise<void> {
+  const user = await glpi.findUserByEmail(email);
+
+  if (!user) {
+    await evolution.sendText(phone, `❌ E-mail *${email}* não encontrado no sistema.`);
+    await sessionStore.deleteSession(phone);
+    return;
+  }
+
+  const fullName = [user.firstname, user.realname].filter(Boolean).join(' ').trim() || user.name;
+
+  await sessionStore.updateUser(phone, {
+    glpiUserId: user.id,
+    name: fullName,
+    email,
+    isAnonymous: false,
+  });
+
+  await sessionStore.updateState(phone, 'MENU');
+
+  const firstName = fullName.split(' ')[0];
+  await evolution.sendText(
+    phone,
+    `✅ Olá, *${firstName}*! Identificado com sucesso.`,
+  );
+
+  const { sendMenu } = await import('./menu.flow');
+  await sendMenu(phone);
+}
+
+// ─── Validação do CPF (somente modo JumpCloud) ────────────────────────────────
+
+export async function handleCpfInput(
+  phone: string,
+  text: string,
+  session: Session,
+): Promise<void> {
+  const input = text.trim().replace(/\D/g, '');
+
+  if (input.length !== 4) {
+    await evolution.sendText(phone, '❌ Informe exatamente *4 dígitos* do CPF:');
+    return;
+  }
+
+  const expectedLast4 = (session as Session & { _cpfLast4?: string })._cpfLast4;
+
+  if (input === expectedLast4) {
+    const cleanSession = session as Session & { _cpfLast4?: string };
+    delete cleanSession._cpfLast4;
+    cleanSession.cpfAttempts = 0;
+    await sessionStore.saveSession(phone, cleanSession);
     await sessionStore.updateState(phone, 'MENU');
 
+    const firstName = session.user.name.split(' ')[0];
     await evolution.sendText(
       phone,
-      `✅ Olá, *${greeting}*! Identidade confirmada.`,
+      `✅ Olá, *${firstName}*! Identidade confirmada.`,
     );
 
     const { sendMenu } = await import('./menu.flow');
@@ -60,88 +168,23 @@ export async function handleEmailInput(phone: string, text: string): Promise<voi
     return;
   }
 
-  // Email não encontrado — modo anônimo
-  await sessionStore.updateUser(phone, { email, isAnonymous: true });
-  await sessionStore.updateState(phone, 'WAITING_ANON_CONFIRM');
+  const attempts = (session.cpfAttempts ?? 0) + 1;
 
-  await evolution.sendText(
-    phone,
-    [
-      `⚠️ Não encontrei o e-mail *${email}* no sistema.`,
-      '',
-      'Você pode continuar como visitante, mas precisarei de mais algumas informações.',
-      '',
-      'Responda com o número da opção desejada:',
-      '',
-      '1️⃣ - Corrigir e-mail informado',
-      '2️⃣ - Abrir como visitante',
-      '3️⃣ - Sair',
-    ].join('\n'),
-  );
-}
-
-export async function handleAnonConfirm(phone: string, text: string): Promise<void> {
-  const choice = text.trim();
-
-  if (choice === '1') {
-    await sessionStore.updateState(phone, 'WAITING_EMAIL');
-    await evolution.sendText(phone, '📧 Informe novamente seu *e-mail corporativo*:');
-    return;
-  }
-
-  if (choice === '2') {
-    await sessionStore.updateState(phone, 'WAITING_ANON_NAME');
-    await evolution.sendText(phone, '📝 Qual é o seu *nome completo*?');
-    return;
-  }
-
-  if (choice === '3') {
-    await sessionStore.deleteSession(phone);
-    await evolution.sendText(phone, 'Ok! Se precisar de ajuda, é só mandar mensagem. Até logo! 👋');
-    return;
-  }
-
-  await evolution.sendText(phone, 'Por favor, responda *1*, *2* ou *3*:');
-}
-
-export async function handleAnonName(phone: string, text: string): Promise<void> {
-  const name = text.trim();
-  if (name.length < 3) {
-    await evolution.sendText(phone, '❌ Nome muito curto. Informe seu nome completo:');
-    return;
-  }
-
-  await sessionStore.updateUser(phone, { name });
-  await sessionStore.updateState(phone, 'WAITING_ANON_PERSONAL_EMAIL');
-  await evolution.sendText(phone, '📧 Qual é o seu *e-mail pessoal* (para contato)?');
-}
-
-export async function handleAnonPersonalEmail(
-  phone: string,
-  text: string,
-  session: Session,
-): Promise<void> {
-  const email = text.trim().toLowerCase();
-
-  if (!EMAIL_REGEX.test(email)) {
+  if (attempts >= MAX_CPF_ATTEMPTS) {
     await evolution.sendText(
       phone,
-      '❌ E-mail inválido. Informe um e-mail válido para contato:',
+      `🔒 Número de tentativas excedido. ${MSG_ACCESS_PROBLEM}`,
     );
+    await sessionStore.deleteSession(phone);
     return;
   }
 
-  await sessionStore.updateUser(phone, {
-    email,
-    isAnonymous: true,
-  });
-  await sessionStore.updateState(phone, 'MENU');
+  const remaining = MAX_CPF_ATTEMPTS - attempts;
+  session.cpfAttempts = attempts;
+  await sessionStore.saveSession(phone, session);
 
   await evolution.sendText(
     phone,
-    `✅ Olá, *${session.user.name}*! Tudo certo.\n\nComo posso te ajudar?`,
+    `❌ CPF incorreto. Você tem mais *${remaining} tentativa${remaining > 1 ? 's' : ''}*.\n\nInforme os *4 últimos dígitos do seu CPF*:`,
   );
-
-  const { sendMenu } = await import('./menu.flow');
-  await sendMenu(phone);
 }

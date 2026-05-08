@@ -69,6 +69,75 @@ Regras:
   }
 }
 
+export interface KBArticleDraft {
+  shouldCreate: boolean;
+  title?: string;
+  content?: string; // HTML simples
+}
+
+export async function generateKBArticle(
+  transcript: string,
+): Promise<KBArticleDraft> {
+  const response = await client.messages.create({
+    model: config.anthropic.model,
+    max_tokens: 2048,
+    system: `Você é um especialista em TI responsável por criar artigos para uma base de conhecimento corporativa.
+Analise a transcrição de um atendimento de suporte e decida se ela contém conhecimento genérico e reutilizável.
+
+REGRAS DE PRIVACIDADE — OBRIGATÓRIAS:
+- NUNCA inclua nomes de pessoas, e-mails, telefones, CPF, matrícula ou qualquer dado pessoal
+- Substitua referências a pessoas por "o colaborador" ou "o usuário"
+- Substitua nomes de departamentos específicos por "o setor" quando identificarem pessoas
+- Remova qualquer informação que possa identificar um indivíduo
+
+CRITÉRIOS PARA CRIAR ARTIGO:
+- O problema é técnico e pode acontecer com outros colaboradores
+- A solução é clara, objetiva e reproduzível
+- Não é um caso isolado ou muito específico (ex: trocar senha de uma pessoa)
+
+Responda SEMPRE em JSON válido:
+{
+  "shouldCreate": boolean,
+  "title": "Título claro e objetivo" | null,
+  "content": "Conteúdo em HTML simples com <h3>, <p>, <ol>, <li>. Máx 600 palavras." | null
+}
+
+Se shouldCreate=false, os outros campos devem ser null.`,
+    messages: [
+      {
+        role: 'user',
+        content: `Transcrição do atendimento:\n\n${transcript}`,
+      },
+    ],
+  });
+
+  const textBlock = response.content.find((b) => b.type === 'text');
+  if (!textBlock || textBlock.type !== 'text') return { shouldCreate: false };
+
+  try {
+    const json = textBlock.text.match(/\{[\s\S]*\}/)?.[0];
+    if (!json) return { shouldCreate: false };
+
+    const result = JSON.parse(json) as {
+      shouldCreate: boolean;
+      title: string | null;
+      content: string | null;
+    };
+
+    if (!result.shouldCreate || !result.title || !result.content) {
+      return { shouldCreate: false };
+    }
+
+    return {
+      shouldCreate: true,
+      title: result.title,
+      content: result.content,
+    };
+  } catch {
+    return { shouldCreate: false };
+  }
+}
+
 export async function extractKeywords(text: string): Promise<string> {
   const response = await client.messages.create({
     model: config.anthropic.model,

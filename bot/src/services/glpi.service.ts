@@ -1,4 +1,5 @@
 import axios, { type AxiosInstance } from 'axios';
+import FormData from 'form-data';
 import { config } from '../config';
 import type { GLPIUser, GLPITicket, GLPIKBArticle } from '../types';
 
@@ -224,6 +225,62 @@ export async function searchKnowledgeBase(keywords: string): Promise<GLPIKBArtic
 }
 
 // ─── URL de um ticket ─────────────────────────────────────────────────────────
+
+export async function createKBArticle(title: string, content: string): Promise<number | null> {
+  const headers = await authHeaders();
+  const { data } = await http.post<{ id: number }>('/KnowbaseItem', {
+    input: {
+      name: title,
+      answer: content,
+      is_faq: 0,
+      entities_id: 0,
+    },
+  }, { headers });
+  return data?.id ?? null;
+}
+
+// ─── Documentos / Imagens na KB ──────────────────────────────────────────────
+
+export async function attachImageToKBArticle(
+  articleId: number,
+  imageBase64: string,
+  mimetype: string,
+  filename: string,
+): Promise<void> {
+  const headers = await authHeaders();
+
+  const buffer = Buffer.from(imageBase64, 'base64');
+  const form = new FormData();
+
+  // GLPI REST espera um manifest JSON + o arquivo com chave "filename[0]"
+  form.append('uploadManifest', JSON.stringify({
+    input: {
+      name: filename,
+      _filename: [filename],
+    },
+  }));
+  form.append('filename[0]', buffer, { filename, contentType: mimetype });
+
+  const { data } = await http.post<{ id?: number; message?: string }>('/Document', form, {
+    headers: { ...headers, ...form.getHeaders() },
+  });
+
+  if (!data?.id) {
+    console.warn('[GLPI] upload de imagem não retornou ID — resposta:', JSON.stringify(data));
+    return;
+  }
+
+  // Vincula o documento ao artigo da KB
+  await http.post('/Document_Item', {
+    input: {
+      documents_id: data.id,
+      itemtype: 'KnowbaseItem',
+      items_id: articleId,
+    },
+  }, { headers });
+
+  console.log('[GLPI] imagem', filename, 'vinculada ao artigo KB', articleId, '— doc ID:', data.id);
+}
 
 export function ticketUrl(ticketId: number): string {
   return `${config.glpi.url}/front/ticket.form.php?id=${ticketId}`;

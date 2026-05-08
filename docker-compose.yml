@@ -205,6 +205,15 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       CLAUDE_MODEL: claude-sonnet-4-6
 
+      # JumpCloud
+      JUMPCLOUD_ENABLED: ${JUMPCLOUD_ENABLED:-false}
+      JUMPCLOUD_API_KEY: ${JUMPCLOUD_API_KEY:-}
+
+      # Identidade do Bot
+      BOT_COMPANY_NAME: ${BOT_COMPANY_NAME:-}
+      BOT_NAME: ${BOT_NAME:-Assistente}
+      BOT_SUPPORT_TEAM: ${BOT_SUPPORT_TEAM:-Suporte TI}
+
       # CSAT
       CSAT_SCALE: 5
     networks:

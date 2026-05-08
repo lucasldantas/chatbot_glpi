@@ -129,3 +129,26 @@ export async function addNote(conversationId: number, note: string): Promise<voi
 export async function resolveConversation(conversationId: number): Promise<void> {
   await http.patch(`/conversations/${conversationId}`, { status: 'resolved' });
 }
+
+// ─── Histórico de mensagens ───────────────────────────────────────────────────
+
+export interface ConversationMessageAttachment {
+  file_type: string; // 'image' | 'audio' | 'video' | 'document' | ...
+  data_url: string;
+}
+
+export interface ConversationMessage {
+  content: string;
+  message_type: number; // 0=incoming(user) 1=outgoing(agent)
+  private: boolean;
+  attachments?: ConversationMessageAttachment[];
+}
+
+export async function getConversationMessages(
+  conversationId: number,
+): Promise<ConversationMessage[]> {
+  const { data } = await http.get<{ payload: ConversationMessage[] }>(
+    `/conversations/${conversationId}/messages`,
+  );
+  return data?.payload ?? [];
+}

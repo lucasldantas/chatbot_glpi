@@ -1,33 +1,34 @@
-# 🐸 Kermit — Bot WhatsApp de Suporte TI integrado ao GLPI
+# 🤖 GLPI WhatsApp Bot
 
-Bot de atendimento no WhatsApp que integra **GLPI**, **Evolution API**, **Chatwoot** e **Claude (Anthropic)** em um único stack Docker. Permite que usuários abram chamados, consultem tickets e sejam transferidos para analistas humanos diretamente pelo WhatsApp.
+Bot de atendimento inteligente via WhatsApp integrado ao **GLPI**, com transferência para analistas humanos via **Chatwoot** e IA generativa via **Claude (Anthropic)**.
 
-## Como funciona
+Desenvolvido para ser instalado em qualquer empresa — todo texto de marca é configurável pelo instalador.
+
+## Visão geral
 
 ```
-Usuário no WhatsApp
+Usuário (WhatsApp)
         │
         ▼
-  Evolution API  ──────►  Bot (Node.js/Express)  ──────►  GLPI
-  (WhatsApp)                      │                    (abre chamados,
-                                  │                     busca KB)
-                                  ▼
-                              Chatwoot               Claude AI
-                          (atendimento humano)   (busca na KB,
-                           agente responde        extrai keywords)
-                           e resolve conversa
-                                  │
-                                  ▼
-                           CSAT enviado ao usuário
+  Evolution API ──► Bot (Node.js) ──► GLPI (chamados, KB, usuários)
+                         │
+                         ├──► Chatwoot (atendimento humano bidirecional)
+                         │
+                         └──► Claude AI (busca semântica, geração de artigos)
 ```
 
-**Fluxo completo:**
-1. Usuário manda mensagem → bot identifica pelo e-mail corporativo
-2. Bot apresenta menu: abrir chamado, consultar tickets, onboarding
-3. Ao abrir chamado, bot busca na base de conhecimento do GLPI com IA
-4. Se a KB não resolver, abre o chamado no GLPI e transfere para o Chatwoot
-5. Analista responde no Chatwoot → bot encaminha para o WhatsApp (bidirecional, com mídia)
-6. Ao resolver a conversa no Chatwoot → bot envia pesquisa de satisfação (CSAT)
+### O que o bot faz
+
+| Funcionalidade | Descrição |
+|---|---|
+| **Identificação** | Valida usuário por e-mail no GLPI + (opcional) JumpCloud com CPF |
+| **Menu principal** | Abrir chamado · Consultar chamados · Onboarding · Sair |
+| **Base de conhecimento** | Busca automática com IA antes de abrir chamado |
+| **Abertura de chamado** | Cria no GLPI com categoria, título e descrição |
+| **Handoff humano** | Transfere para Chatwoot; proxy bidirecional de mensagens e mídia |
+| **CSAT** | Pesquisa de satisfação 1–10 via WhatsApp ao resolver conversa |
+| **Auto KB** | IA gera artigo na base de conhecimento a partir de atendimentos resolvidos |
+| **Imagens na KB** | Imagens enviadas pelo analista são anexadas ao artigo gerado |
 
 ## Pré-requisitos
 
@@ -35,26 +36,64 @@ Usuário no WhatsApp
 |---|---|
 | Docker + Docker Compose v2 | 24+ |
 | GLPI com API REST habilitada | 10+ |
-| Número WhatsApp disponível para QR Code | — |
-| Chave de API Anthropic | — |
+| Número WhatsApp disponível (QR Code) | — |
+| Chave Anthropic API | — |
+| (Opcional) JumpCloud API Key | — |
 
-> O servidor precisa ter acesso à internet para baixar as imagens Docker e o código da Evolution API no primeiro `install.sh`.
-
-## Instalação — one liner
+## Instalação
 
 ```bash
-git clone https://github.com/lucasldantas/chatbot_glpi && cd chatbot_glpi && bash install.sh
+git clone https://github.com/lucasldantas/chatbot_glpi
+cd chatbot_glpi
+bash install.sh
 ```
 
-O instalador interativo faz **tudo automaticamente**:
-- Gera senhas seguras e cria o `.env`
-- Inicializa PostgreSQL e Redis
-- Faz build e migra o banco do Chatwoot
-- Cria o admin do Chatwoot
-- Cria a inbox WhatsApp e registra os webhooks
-- Faz build e sobe o bot
+O instalador interativo guia por **9 etapas** com tela limpa e indicadores de progresso:
 
-Ao final só é preciso **escanear o QR Code** em `http://localhost:8080/manager`.
+1. **Identidade da empresa** — nome da empresa, nome do bot, time de suporte
+2. **Infraestrutura** — senhas de PostgreSQL e Redis
+3. **Evolution API** — gateway WhatsApp
+4. **GLPI** — URL, tokens, categorias
+5. **ChatWoot** — atendimento humano
+6. **Anthropic / Claude** — IA
+7. **JumpCloud** — autenticação opcional com CPF
+8. **Configurações do bot** — timeout de sessão
+9. **Resumo + confirmação**
+
+Ao final, o instalador sobe todos os serviços automaticamente. Basta **escanear o QR Code** em `http://localhost:8080/manager`.
+
+## Autenticação de usuários
+
+O bot suporta dois modos de identificação, configurados no `install.sh`:
+
+### Modo GLPI (padrão)
+Valida apenas o e-mail corporativo no GLPI. Simples e sem dependências externas.
+
+### Modo JumpCloud
+Validação em duas etapas com segurança reforçada:
+1. E-mail verificado no JumpCloud (conta existe e está ativa)
+2. Confirmação dos **4 últimos dígitos do CPF** (custom attribute do JumpCloud)
+3. E-mail verificado no GLPI (correspondência exata)
+
+> Modo visitante/anônimo não está disponível em nenhum dos modos por questões de segurança.
+
+## IA integrada
+
+### Busca na base de conhecimento
+Ao descrever um problema, o bot:
+1. Extrai palavras-chave com Claude
+2. Busca artigos no GLPI (`/search/KnowbaseItem`)
+3. Claude analisa e resume os resultados
+4. Apresenta solução passo a passo + link para o artigo completo
+
+### Geração automática de artigos
+Ao resolver uma conversa no Chatwoot, o bot:
+1. Busca o histórico de mensagens públicas
+2. Claude analisa se contém conhecimento genérico e reutilizável
+3. Gera artigo em HTML sem nenhum dado pessoal (PII)
+4. Publica diretamente no GLPI — sem necessidade de aprovação de admin
+5. Anexa imagens enviadas pelo analista ao artigo
+6. Adiciona nota privada na conversa com o link do artigo
 
 ## Serviços e portas
 
@@ -62,15 +101,44 @@ Ao final só é preciso **escanear o QR Code** em `http://localhost:8080/manager
 |---|---|---|
 | Evolution API | `8080` | Gateway WhatsApp — painel em `/manager` |
 | Chatwoot | `3001` | Atendimento humano |
-| Bot | `3000` | Webhooks e lógica do chatbot |
+| Bot | `3000` | Webhooks e lógica |
 | PostgreSQL | interno | Banco de dados |
 | Redis | interno | Sessões e cache |
 
-## Documentação completa
+## Comandos rápidos
 
-Veja o **[MANUAL.md](MANUAL.md)** para:
-- Referência de todas as variáveis de ambiente
-- Mapeamento completo de mensagens personalizáveis
-- Descrição de todos os flows do bot
-- Comandos de manutenção e troubleshooting
-- Como configurar o webhook de CSAT no GLPI
+```bash
+# Logs do bot em tempo real
+docker compose logs bot -f
+
+# Rebuild após mudança no código
+docker compose build bot && docker compose up -d bot
+
+# Reconfigurar variáveis de ambiente
+bash install.sh
+
+# Status de todos os serviços
+docker compose ps
+
+# Reinicialização limpa
+docker compose down -v --remove-orphans && bash install.sh
+```
+
+## Documentação
+
+| Arquivo | Conteúdo |
+|---|---|
+| [SETUP.md](SETUP.md) | Fallbacks manuais para cada etapa da instalação |
+| [MANUAL.md](MANUAL.md) | Referência completa: variáveis, estados, mensagens, troubleshooting |
+
+## Stack técnica
+
+| Componente | Tecnologia |
+|---|---|
+| Bot | Node.js 20, TypeScript, Express |
+| Gateway WhatsApp | Evolution API v2.3.7 (Baileys) |
+| Atendimento humano | Chatwoot |
+| IA | Claude (claude-sonnet-4-6) |
+| Sessões | Redis 7 |
+| Banco de dados | PostgreSQL 15 |
+| Containerização | Docker Compose |

@@ -3,6 +3,9 @@ import axios from 'axios';
 import { config } from '../config';
 import * as evolution from '../services/evolution.service';
 import * as sessionStore from '../session/redis';
+import * as chatwootService from '../services/chatwoot.service';
+import * as claudeService from '../services/claude.service';
+import * as glpi from '../services/glpi.service';
 import type { ChatwootWebhookPayload } from '../types';
 
 // ChatWoot envia webhooks para: http://bot:3000/webhook/chatwoot
@@ -82,6 +85,85 @@ export async function handleChatwootWebhook(req: Request, res: Response): Promis
 
     const { sendCsatRequest } = await import('../flows/csat.flow');
     await sendCsatRequest(phone, conversationId!).catch(console.error);
+
+    // ─── Auto-geração de artigo na base de conhecimento ─────────────────────
+    if (conversationId) {
+      setImmediate(() => tryGenerateKBArticle(conversationId!));
+    }
+  }
+}
+
+async function tryGenerateKBArticle(conversationId: number): Promise<void> {
+  try {
+    const messages = await chatwootService.getConversationMessages(conversationId);
+
+    // Filtra apenas mensagens públicas (não notas privadas) com conteúdo
+    const publicMessages = messages.filter(
+      (m) => !m.private && m.content?.trim(),
+    );
+
+    if (publicMessages.length < 3) {
+      // Conversa muito curta — sem valor para KB
+      return;
+    }
+
+    // Monta transcrição legível para o Claude
+    const transcript = publicMessages
+      .map((m) => {
+        const role = m.message_type === 0 ? 'Usuário' : 'Analista';
+        return `${role}: ${m.content.trim()}`;
+      })
+      .join('\n');
+
+    const draft = await claudeService.generateKBArticle(transcript);
+
+    if (!draft.shouldCreate || !draft.title || !draft.content) {
+      console.log('[KB Auto] Claude decidiu não criar artigo para conversa', conversationId);
+      return;
+    }
+
+    const articleId = await glpi.createKBArticle(draft.title, draft.content);
+
+    if (articleId) {
+      console.log('[KB Auto] Artigo criado com sucesso — ID:', articleId, 'título:', draft.title);
+
+      // ─── Anexa imagens enviadas pelo analista (máx 5) ───────────────────
+      const agentImages = messages
+        .filter((m) => !m.private && m.message_type === 1)
+        .flatMap((m) => m.attachments ?? [])
+        .filter((a) => a.file_type === 'image')
+        .slice(0, 5);
+
+      let imagesAttached = 0;
+      for (const att of agentImages) {
+        try {
+          const downloaded = await downloadChatwootAttachment(att.data_url);
+          if (!downloaded) continue;
+
+          const ext = downloaded.mimetype.split('/')[1]?.split(';')[0] || 'jpg';
+          const filename = `kb-${articleId}-img${imagesAttached + 1}.${ext}`;
+          await glpi.attachImageToKBArticle(articleId, downloaded.base64, downloaded.mimetype, filename);
+          imagesAttached++;
+        } catch (imgErr) {
+          console.error('[KB Auto] erro ao anexar imagem:', imgErr);
+        }
+      }
+
+      if (imagesAttached > 0) {
+        console.log('[KB Auto]', imagesAttached, 'imagem(ns) anexada(s) ao artigo', articleId);
+      }
+
+      // Nota privada na conversa com link para o artigo
+      const articleLink = glpi.kbArticleUrl(articleId);
+      await chatwootService.addNote(
+        conversationId,
+        `📚 Artigo gerado automaticamente na base de conhecimento:\n${draft.title}\n${articleLink}${imagesAttached > 0 ? `\n🖼️ ${imagesAttached} imagem(ns) anexada(s)` : ''}`,
+      ).catch(console.error);
+    } else {
+      console.warn('[KB Auto] createKBArticle retornou null para conversa', conversationId);
+    }
+  } catch (err) {
+    console.error('[KB Auto] erro ao gerar artigo KB para conversa', conversationId, err);
   }
 }
 

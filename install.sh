@@ -1,374 +1,400 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GLPI WhatsApp Bot — Instalador Interativo
-# ─────────────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  GLPI WhatsApp Bot — Instalador Interativo
+# ══════════════════════════════════════════════════════════════════════════════
 
-# ── Cores ────────────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-DIM='\033[2m'
-RESET='\033[0m'
+# ─── Cores ────────────────────────────────────────────────────────────────────
+C_RED='\033[0;31m';    C_GREEN='\033[0;32m'; C_YELLOW='\033[1;33m'
+C_BLUE='\033[0;34m';   C_CYAN='\033[0;36m';  C_BOLD='\033[1m'
+C_DIM='\033[2m';       C_RESET='\033[0m'
 
-# ── Utilitários ───────────────────────────────────────────────────────────────
+TOTAL_SECTIONS=9
 
-print_header() {
+# ─── Cabeçalho de seção ───────────────────────────────────────────────────────
+section() {
+  local num="$1" title="$2"
+  clear
   echo
-  echo -e "${BOLD}${BLUE}╔══════════════════════════════════════════════════════════════╗${RESET}"
-  echo -e "${BOLD}${BLUE}║        GLPI WhatsApp Bot — Configuração Interativa           ║${RESET}"
-  echo -e "${BOLD}${BLUE}╚══════════════════════════════════════════════════════════════╝${RESET}"
-  echo
-}
-
-print_section() {
-  echo
-  echo -e "${BOLD}${CYAN}┌─ $1 ─────────────────────────────────────────────────────${RESET}"
+  echo -e "  ${C_BOLD}${C_BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+  echo -e "  ${C_BOLD}  GLPI WhatsApp Bot${C_RESET}  ${C_DIM}•  Etapa ${num} de ${TOTAL_SECTIONS}${C_RESET}"
+  echo -e "  ${C_BOLD}${C_CYAN}  ${title}${C_RESET}"
+  echo -e "  ${C_BOLD}${C_BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
   echo
 }
 
-print_ok()   { echo -e "  ${GREEN}✓${RESET} $1"; }
-print_warn() { echo -e "  ${YELLOW}⚠${RESET}  $1"; }
-print_info() { echo -e "  ${BLUE}ℹ${RESET}  $1"; }
-print_err()  { echo -e "  ${RED}✗${RESET} $1"; }
+# ─── Utilitários de saída ─────────────────────────────────────────────────────
+ok()   { echo -e "  ${C_GREEN}✓${C_RESET}  $*"; }
+warn() { echo -e "  ${C_YELLOW}⚠${C_RESET}   $*"; }
+info() { echo -e "  ${C_BLUE}ℹ${C_RESET}   $*"; }
+err()  { echo -e "  ${C_RED}✗${C_RESET}  $*"; }
 
-# ask VAR "Pergunta" "valor_padrao"
-# Lê sempre com texto visível (sem -s), conforme solicitado
-ask() {
-  local var="$1"
-  local question="$2"
-  local default="${3:-}"
-  local current="${!var:-}"
+# ─── Step com spinner ─────────────────────────────────────────────────────────
+step() {
+  local label="$1"; shift
 
-  local prompt
-  if [[ -n "$current" ]]; then
-    prompt="${BOLD}${question}${RESET} ${DIM}[atual: ${current}]${RESET}: "
-  elif [[ -n "$default" ]]; then
-    prompt="${BOLD}${question}${RESET} ${DIM}[padrão: ${default}]${RESET}: "
+  # Constrói linha com pontos até 46 chars
+  local vis="$label"
+  while [[ ${#vis} -lt 46 ]]; do vis="${vis}."; done
+
+  # Spinner em background
+  (
+    local f=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    local i=0
+    while true; do
+      printf "\r  \033[1m%s\033[0m \033[33m%s\033[0m" "$vis" "${f[$i]}"
+      i=$(( (i+1) % 10 ))
+      sleep 0.08
+    done
+  ) &
+  local spin=$!
+
+  local log; log=$(mktemp)
+  local rc=0
+  "$@" >"$log" 2>&1 || rc=$?
+
+  kill $spin 2>/dev/null; wait $spin 2>/dev/null || true
+
+  if [[ $rc -eq 0 ]]; then
+    printf "\r  \033[1m%s\033[0m [\033[32m OK \033[0m]\n" "$vis"
   else
-    prompt="${BOLD}${question}${RESET}: "
+    printf "\r  \033[1m%s\033[0m [\033[31mERRO\033[0m]\n" "$vis"
+    echo
+    grep -v '^[[:space:]]*$' "$log" | tail -8 | sed 's/^/    /'
+    rm -f "$log"; echo; return 1
+  fi
+  rm -f "$log"
+}
+
+# ─── Entrada de dados ─────────────────────────────────────────────────────────
+ask() {
+  local var="$1" question="$2" default="${3:-}"
+  local current="${!var:-}"
+  local prompt
+
+  if   [[ -n "$current" ]];  then prompt="${C_BOLD}${question}${C_RESET} ${C_DIM}[atual: ${current}]${C_RESET}: "
+  elif [[ -n "$default" ]];  then prompt="${C_BOLD}${question}${C_RESET} ${C_DIM}[padrão: ${default}]${C_RESET}: "
+  else                             prompt="${C_BOLD}${question}${C_RESET}: "
   fi
 
   while true; do
-    echo -en "  $prompt"
-    read -r value
+    echo -en "  $prompt"; read -r value
     value="${value:-${current:-${default}}}"
-    if [[ -n "$value" ]]; then
-      printf -v "$var" '%s' "$value"
-      break
-    fi
-    echo -e "  ${RED}Campo obrigatório. Informe um valor.${RESET}"
+    if [[ -n "$value" ]]; then printf -v "$var" '%s' "$value"; break; fi
+    err "Campo obrigatório."
   done
 }
 
-# ask_optional VAR "Pergunta" "valor_padrao"
-ask_optional() {
-  local var="$1"
-  local question="$2"
-  local default="${3:-}"
+ask_opt() {
+  local var="$1" question="$2" default="${3:-}"
   local current="${!var:-}"
-
   local display="${current:-$default}"
   local prompt
+
   if [[ -n "$display" ]]; then
-    prompt="${BOLD}${question}${RESET} ${DIM}[padrão: ${display}]${RESET} ${DIM}(Enter para manter)${RESET}: "
+    prompt="${C_BOLD}${question}${C_RESET} ${C_DIM}[padrão: ${display}]${C_RESET} ${C_DIM}(Enter para manter)${C_RESET}: "
   else
-    prompt="${BOLD}${question}${RESET} ${DIM}(opcional, Enter para pular)${RESET}: "
+    prompt="${C_BOLD}${question}${C_RESET} ${C_DIM}(opcional)${C_RESET}: "
   fi
 
-  echo -en "  $prompt"
-  read -r value
+  echo -en "  $prompt"; read -r value
   value="${value:-${current:-${default}}}"
   printf -v "$var" '%s' "$value"
 }
 
 confirm() {
-  local question="$1"
-  local default="${2:-s}"
-  local prompt
-  if [[ "$default" == "s" ]]; then
-    prompt="${BOLD}${question}${RESET} ${DIM}[S/n]${RESET}: "
-  else
-    prompt="${BOLD}${question}${RESET} ${DIM}[s/N]${RESET}: "
-  fi
-  echo -en "  $prompt"
-  read -r ans
-  ans="${ans:-$default}"
+  local question="$1" default="${2:-s}"
+  local hint; [[ "$default" == "s" ]] && hint="S/n" || hint="s/N"
+  echo -en "  ${C_BOLD}${question}${C_RESET} ${C_DIM}[${hint}]${C_RESET}: "
+  read -r ans; ans="${ans:-$default}"
   [[ "$ans" =~ ^[Ss]$ ]]
 }
 
-# ── Carrega .env existente (se houver) ───────────────────────────────────────
+# ─── Carrega .env existente ───────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
+[[ -f "$ENV_FILE" ]] && { set -a; source "$ENV_FILE"; set +a; }
 
-if [[ -f "$ENV_FILE" ]]; then
-  # shellcheck disable=SC1090
-  set -a; source "$ENV_FILE"; set +a
-fi
+# ─── Valores padrão ───────────────────────────────────────────────────────────
+BOT_COMPANY_NAME="${BOT_COMPANY_NAME:-}"
+BOT_NAME="${BOT_NAME:-Assistente}"
+BOT_SUPPORT_TEAM="${BOT_SUPPORT_TEAM:-Suporte TI}"
 
-# ── Variáveis com valores correntes ou vazios ─────────────────────────────────
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
 EVOLUTION_DB_PASSWORD="${EVOLUTION_DB_PASSWORD:-}"
 CHATWOOT_DB_PASSWORD="${CHATWOOT_DB_PASSWORD:-}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-}"
 REDIS_PASSWORD_ENCODED="${REDIS_PASSWORD_ENCODED:-}"
-CHATWOOT_ADMIN_NAME="${CHATWOOT_ADMIN_NAME:-Administrador}"
-CHATWOOT_ADMIN_EMAIL="${CHATWOOT_ADMIN_EMAIL:-}"
-CHATWOOT_ADMIN_PASSWORD="${CHATWOOT_ADMIN_PASSWORD:-}"
-CHATWOOT_ACCOUNT_NAME="${CHATWOOT_ACCOUNT_NAME:-Suporte TI}"
+
 EVOLUTION_API_KEY="${EVOLUTION_API_KEY:-}"
 EVOLUTION_INSTANCE="${EVOLUTION_INSTANCE:-suporte}"
+
 GLPI_URL="${GLPI_URL:-}"
 GLPI_APP_TOKEN="${GLPI_APP_TOKEN:-}"
 GLPI_USER_TOKEN="${GLPI_USER_TOKEN:-}"
 GLPI_DEFAULT_CATEGORY_ID="${GLPI_DEFAULT_CATEGORY_ID:-0}"
 GLPI_ONBOARDING_CATEGORY_ID="${GLPI_ONBOARDING_CATEGORY_ID:-0}"
+
 CHATWOOT_FRONTEND_URL="${CHATWOOT_FRONTEND_URL:-http://localhost:3001}"
+CHATWOOT_ACCOUNT_NAME="${CHATWOOT_ACCOUNT_NAME:-Suporte TI}"
+CHATWOOT_ADMIN_NAME="${CHATWOOT_ADMIN_NAME:-Administrador}"
+CHATWOOT_ADMIN_EMAIL="${CHATWOOT_ADMIN_EMAIL:-}"
+CHATWOOT_ADMIN_PASSWORD="${CHATWOOT_ADMIN_PASSWORD:-}"
 CHATWOOT_SECRET_KEY="${CHATWOOT_SECRET_KEY:-}"
 CHATWOOT_API_TOKEN="${CHATWOOT_API_TOKEN:-}"
 CHATWOOT_ACCOUNT_ID="${CHATWOOT_ACCOUNT_ID:-1}"
 CHATWOOT_INBOX_ID="${CHATWOOT_INBOX_ID:-1}"
 CHATWOOT_WEBHOOK_SECRET="${CHATWOOT_WEBHOOK_SECRET:-}"
+
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 CLAUDE_MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"
+
+JUMPCLOUD_ENABLED="${JUMPCLOUD_ENABLED:-false}"
+JUMPCLOUD_API_KEY="${JUMPCLOUD_API_KEY:-}"
+
 SESSION_TTL_SECONDS="${SESSION_TTL_SECONDS:-3600}"
-CSAT_SCALE="${CSAT_SCALE:-5}"
 
-# ═════════════════════════════════════════════════════════════════════════════
-# INÍCIO DO INSTALADOR
-# ═════════════════════════════════════════════════════════════════════════════
-
+# ══════════════════════════════════════════════════════════════════════════════
+#  TELA DE BOAS-VINDAS
+# ══════════════════════════════════════════════════════════════════════════════
 clear
-print_header
-
-echo -e "  Este instalador configura todas as variáveis necessárias para o bot."
-echo -e "  ${DIM}• Campos com [atual: ...] já têm valor salvo — Enter mantém.${RESET}"
-echo -e "  ${DIM}• Senhas são exibidas em texto visível conforme configuração.${RESET}"
-echo -e "  ${DIM}• Ao final, o arquivo .env será gerado/atualizado.${RESET}"
-
-# ─────────────────────────────────────────────────────────────────────────────
-print_section "1. PostgreSQL"
-# ─────────────────────────────────────────────────────────────────────────────
-
-print_info "Senha mestra do PostgreSQL (usada internamente pelo Docker)."
-ask POSTGRES_PASSWORD    "Senha mestra do PostgreSQL"
-
 echo
-print_info "Senha para o banco da Evolution API (usuário: evolution)."
+echo -e "  ${C_BOLD}${C_BLUE}┌──────────────────────────────────────────────────────────┐${C_RESET}"
+echo -e "  ${C_BOLD}${C_BLUE}│                                                          │${C_RESET}"
+echo -e "  ${C_BOLD}${C_BLUE}│        GLPI  WhatsApp  Bot  —  Instalador                │${C_RESET}"
+echo -e "  ${C_BOLD}${C_BLUE}│                                                          │${C_RESET}"
+echo -e "  ${C_BOLD}${C_BLUE}└──────────────────────────────────────────────────────────┘${C_RESET}"
+echo
+echo -e "  Sistema de atendimento inteligente via WhatsApp integrado ao GLPI."
+echo
+echo -e "  ${C_DIM}• Campos com [atual: ...] já têm valor salvo — Enter mantém.${C_RESET}"
+echo -e "  ${C_DIM}• Ao final, o arquivo .env será gerado e os serviços sobem.${C_RESET}"
+echo
+echo -en "  ${C_BOLD}Pressione Enter para iniciar...${C_RESET}"; read -r
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ETAPA 1 — IDENTIDADE DA EMPRESA
+# ══════════════════════════════════════════════════════════════════════════════
+section 1 "Identidade da Empresa"
+
+info "Essas informações aparecem nas mensagens enviadas pelo bot."
+echo
+
+ask BOT_COMPANY_NAME  "Nome da empresa"                    "Minha Empresa"
+echo
+ask BOT_NAME          "Nome do assistente virtual (bot)"   "Assistente"
+echo
+ask BOT_SUPPORT_TEAM  "Nome do time de suporte"            "Suporte TI"
+echo
+ask CHATWOOT_ACCOUNT_NAME "Nome da conta no ChatWoot"      "${BOT_COMPANY_NAME:-Suporte TI}"
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ETAPA 2 — INFRAESTRUTURA
+# ══════════════════════════════════════════════════════════════════════════════
+section 2 "Infraestrutura (PostgreSQL + Redis)"
+
+info "Senhas internas usadas pelo Docker — não precisam ser memorizadas."
+echo
+ask POSTGRES_PASSWORD     "Senha mestra do PostgreSQL"
+echo
 ask EVOLUTION_DB_PASSWORD "Senha do banco da Evolution API"
-
 echo
-print_info "Senha para o banco do ChatWoot (usuário: chatwoot)."
-ask CHATWOOT_DB_PASSWORD   "Senha do banco do ChatWoot"
-
-# ─────────────────────────────────────────────────────────────────────────────
-print_section "2. Redis"
-# ─────────────────────────────────────────────────────────────────────────────
-
-print_info "Senha de autenticação do Redis (compartilhado entre todos os serviços)."
-ask REDIS_PASSWORD "Senha do Redis"
-# URL-encode chars that break Redis URI parsing (@ → %40, # → %23, : → %3A, / → %2F)
-REDIS_PASSWORD_ENCODED=$(printf '%s' "$REDIS_PASSWORD" | sed 's/%/%25/g; s/@/%40/g; s/#/%23/g; s|/|%2F|g; s/:/%3A/g')
-
-# ─────────────────────────────────────────────────────────────────────────────
-print_section "3. Evolution API (WhatsApp)"
-# ─────────────────────────────────────────────────────────────────────────────
-
-print_info "Chave de API da Evolution API — você define livremente (mín. 20 caracteres)."
-ask EVOLUTION_API_KEY  "API Key da Evolution API"
-
+ask CHATWOOT_DB_PASSWORD  "Senha do banco do ChatWoot"
 echo
-print_info "Nome da instância WhatsApp que será criada (sem espaços)."
-print_info "Ex: suporte, helpdesk, ti-empresa"
+ask REDIS_PASSWORD        "Senha do Redis"
+
+REDIS_PASSWORD_ENCODED=$(printf '%s' "$REDIS_PASSWORD" \
+  | sed 's/%/%25/g; s/@/%40/g; s/#/%23/g; s|/|%2F|g; s/:/%3A/g')
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ETAPA 3 — EVOLUTION API (WHATSAPP)
+# ══════════════════════════════════════════════════════════════════════════════
+section 3 "Evolution API (WhatsApp)"
+
+info "Gateway que conecta o bot ao WhatsApp via QR Code."
+echo
+ask EVOLUTION_API_KEY  "API Key da Evolution API (mín. 20 chars)"
+echo
+info "Nome da instância WhatsApp — sem espaços (ex: suporte, helpdesk)."
 ask EVOLUTION_INSTANCE "Nome da instância WhatsApp" "suporte"
 
-# ─────────────────────────────────────────────────────────────────────────────
-print_section "4. GLPI"
-# ─────────────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  ETAPA 4 — GLPI
+# ══════════════════════════════════════════════════════════════════════════════
+section 4 "GLPI"
 
-print_info "URL base do GLPI, sem barra final."
-print_info "Ex: https://glpi.suaempresa.com.br"
+info "Configure a API REST do GLPI para criação e consulta de chamados."
+echo
+info "URL base sem barra final. Ex: https://glpi.suaempresa.com.br"
 ask GLPI_URL "URL do GLPI"
-
 echo
-print_info "App-Token: GLPI → Configuração → Geral → API → Token da aplicação."
+info "App-Token: GLPI → Configuração → Geral → API → Token da aplicação."
 ask GLPI_APP_TOKEN "App-Token do GLPI"
-
 echo
-print_info "User-Token de uma conta de serviço com perfil Técnico."
-print_info "GLPI → Administração → Usuários → (service account) → Token API."
+info "User-Token de uma conta de serviço com perfil Técnico."
+info "GLPI → Administração → Usuários → (service account) → Token API."
 ask GLPI_USER_TOKEN "User-Token do GLPI (service account)"
-
 echo
-print_info "ID da categoria padrão para chamados normais."
-print_info "GLPI → Assistência → Categorias → anote o ID da linha desejada."
-print_info "Use 0 para nenhuma categoria (campo ficará em branco)."
-ask GLPI_DEFAULT_CATEGORY_ID "ID da categoria padrão de chamados" "0"
-
+info "IDs de categoria de chamados (0 = sem categoria)."
+info "GLPI → Assistência → Categorias → veja o ID na linha desejada."
+ask GLPI_DEFAULT_CATEGORY_ID     "ID da categoria padrão de chamados"  "0"
 echo
-print_info "ID da categoria para chamados de Onboarding / Primeiro Acesso."
-print_info "Use 0 se não tiver categoria específica."
-ask GLPI_ONBOARDING_CATEGORY_ID "ID da categoria de Onboarding" "0"
+ask GLPI_ONBOARDING_CATEGORY_ID  "ID da categoria de Onboarding"       "0"
 
-# ─────────────────────────────────────────────────────────────────────────────
-print_section "5. ChatWoot"
-# ─────────────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  ETAPA 5 — CHATWOOT
+# ══════════════════════════════════════════════════════════════════════════════
+section 5 "ChatWoot"
 
-print_info "URL de acesso externo ao ChatWoot (usada nos e-mails e links internos)."
-print_info "Ex: http://localhost:3001  ou  https://chat.suaempresa.com.br"
+info "Plataforma de atendimento humano integrada ao bot."
+echo
+info "URL de acesso externo. Ex: http://localhost:3001 ou https://chat.empresa.com"
 ask CHATWOOT_FRONTEND_URL "URL externa do ChatWoot" "http://localhost:3001"
-
 echo
-print_info "Nome da sua organização/empresa exibido dentro do ChatWoot."
-ask CHATWOOT_ACCOUNT_NAME "Nome da conta/empresa no ChatWoot" "Suporte TI"
-
+ask CHATWOOT_ADMIN_NAME     "Nome completo do administrador"  "Administrador"
 echo
-print_info "Nome completo do administrador que será criado automaticamente."
-ask CHATWOOT_ADMIN_NAME "Nome do administrador" "Administrador"
-
+ask CHATWOOT_ADMIN_EMAIL    "E-mail do administrador"
 echo
-print_info "E-mail do administrador — usado para o primeiro login no ChatWoot."
-ask CHATWOOT_ADMIN_EMAIL "E-mail do administrador"
-
+ask CHATWOOT_ADMIN_PASSWORD "Senha do administrador (mín. 6 chars)"
 echo
-print_info "Senha do administrador (mín. 6 caracteres)."
-ask CHATWOOT_ADMIN_PASSWORD "Senha do administrador"
-
-echo
-print_info "SECRET_KEY_BASE do Rails — string aleatória longa (mín. 64 chars)."
-print_info "Gere com: openssl rand -hex 64"
-if [[ -z "$CHATWOOT_SECRET_KEY" ]]; then
-  if command -v openssl &>/dev/null; then
-    CHATWOOT_SECRET_KEY_SUGGESTION=$(openssl rand -hex 64)
-    print_ok "Sugestão gerada automaticamente (pressione Enter para usar):"
-    echo -e "  ${DIM}${CHATWOOT_SECRET_KEY_SUGGESTION}${RESET}"
-    ask_optional CHATWOOT_SECRET_KEY "SECRET_KEY_BASE do ChatWoot" "$CHATWOOT_SECRET_KEY_SUGGESTION"
-  else
-    ask CHATWOOT_SECRET_KEY "SECRET_KEY_BASE do ChatWoot (mín. 64 chars)"
-  fi
+info "SECRET_KEY_BASE — string aleatória longa (mín. 64 chars)."
+if [[ -z "$CHATWOOT_SECRET_KEY" ]] && command -v openssl &>/dev/null; then
+  local_sug=$(openssl rand -hex 64)
+  ok "Sugestão gerada automaticamente (Enter para usar):"
+  echo -e "  ${C_DIM}${local_sug}${C_RESET}"
+  ask_opt CHATWOOT_SECRET_KEY "SECRET_KEY_BASE do ChatWoot" "$local_sug"
 else
   ask CHATWOOT_SECRET_KEY "SECRET_KEY_BASE do ChatWoot"
 fi
-
 echo
-print_warn "Os campos abaixo (API Token, Account ID, Inbox ID) só ficam disponíveis"
-print_warn "APÓS subir o ChatWoot pela primeira vez e criar a conta admin."
-print_warn "Você pode deixar os valores padrão agora e atualizar depois com: ./install.sh"
+warn "Os campos abaixo só ficam disponíveis APÓS o ChatWoot subir pela 1ª vez."
+warn "Se estiver reinstalando, eles serão preenchidos automaticamente."
 echo
-
-print_info "API Token: ChatWoot → Perfil → Tokens de Acesso → Copiar token."
-ask_optional CHATWOOT_API_TOKEN "API Token do ChatWoot" "${CHATWOOT_API_TOKEN:-placeholder_preencher_depois}"
-
+ask_opt CHATWOOT_API_TOKEN      "API Token do ChatWoot"   "${CHATWOOT_API_TOKEN:-placeholder}"
 echo
-print_info "Account ID: número na URL do ChatWoot após /app/accounts/"
-print_info "Ex: na URL /app/accounts/1/conversations → ID = 1"
-ask_optional CHATWOOT_ACCOUNT_ID "Account ID do ChatWoot" "1"
-
+ask_opt CHATWOOT_ACCOUNT_ID     "Account ID do ChatWoot"  "1"
 echo
-print_info "Inbox ID: ChatWoot → Configurações → Inboxes → ID da inbox WhatsApp."
-ask_optional CHATWOOT_INBOX_ID "Inbox ID do ChatWoot" "1"
-
+ask_opt CHATWOOT_INBOX_ID       "Inbox ID do ChatWoot"    "1"
 echo
-print_info "Webhook Secret — string usada para validar requisições do ChatWoot."
-print_info "Defina livremente. Configure o mesmo valor no webhook dentro do ChatWoot."
-if [[ -z "$CHATWOOT_WEBHOOK_SECRET" ]]; then
-  if command -v openssl &>/dev/null; then
-    CHATWOOT_WH_SUGGESTION=$(openssl rand -hex 20)
-    print_ok "Sugestão: ${CHATWOOT_WH_SUGGESTION}"
-    ask_optional CHATWOOT_WEBHOOK_SECRET "Webhook Secret do ChatWoot" "$CHATWOOT_WH_SUGGESTION"
-  else
-    ask_optional CHATWOOT_WEBHOOK_SECRET "Webhook Secret do ChatWoot"
-  fi
+info "Webhook Secret — defina livremente. Configure o mesmo no painel do ChatWoot."
+if [[ -z "$CHATWOOT_WEBHOOK_SECRET" ]] && command -v openssl &>/dev/null; then
+  wh_sug=$(openssl rand -hex 20)
+  ok "Sugestão: ${wh_sug}"
+  ask_opt CHATWOOT_WEBHOOK_SECRET "Webhook Secret do ChatWoot" "$wh_sug"
 else
-  ask_optional CHATWOOT_WEBHOOK_SECRET "Webhook Secret do ChatWoot"
+  ask_opt CHATWOOT_WEBHOOK_SECRET "Webhook Secret do ChatWoot"
 fi
 
-# ─────────────────────────────────────────────────────────────────────────────
-print_section "6. Anthropic / Claude"
-# ─────────────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  ETAPA 6 — ANTHROPIC / CLAUDE
+# ══════════════════════════════════════════════════════════════════════════════
+section 6 "Anthropic / Claude (IA)"
 
-print_info "Chave de API da Anthropic para busca na base de conhecimento."
-print_info "Obtenha em: https://console.anthropic.com → API Keys"
+info "Usada para busca inteligente na KB e geração automática de artigos."
+info "Obtenha em: https://console.anthropic.com → API Keys"
+echo
 ask ANTHROPIC_API_KEY "API Key da Anthropic"
+echo
+ask_opt CLAUDE_MODEL "Modelo Claude" "claude-sonnet-4-6"
 
-echo
-print_info "Modelo Claude a ser usado (recomendado: claude-sonnet-4-6)."
-ask_optional CLAUDE_MODEL "Modelo Claude" "claude-sonnet-4-6"
+# ══════════════════════════════════════════════════════════════════════════════
+#  ETAPA 7 — JUMPCLOUD (AUTENTICAÇÃO)
+# ══════════════════════════════════════════════════════════════════════════════
+section 7 "JumpCloud (Autenticação)"
 
-# ─────────────────────────────────────────────────────────────────────────────
-print_section "7. Configurações do Bot"
-# ─────────────────────────────────────────────────────────────────────────────
+echo -e "  O bot pode validar usuários de duas formas:\n"
+echo -e "  ${C_BOLD}  [S] Com JumpCloud${C_RESET}  — verifica e-mail, conta ativa e CPF (4 dígitos)"
+echo -e "  ${C_BOLD}  [N] Sem JumpCloud${C_RESET}  — valida apenas pelo GLPI (somente e-mail)"
+echo
+warn "Modo visitante/anônimo está desabilitado em ambos os casos."
+echo
 
-print_info "Tempo (em segundos) que a sessão do usuário fica ativa sem interação."
-print_info "3600 = 1 hora | 7200 = 2 horas | 86400 = 24 horas"
-ask_optional SESSION_TTL_SECONDS "Timeout da sessão (segundos)" "3600"
+_jc_default="n"
+[[ "$JUMPCLOUD_ENABLED" == "true" ]] && _jc_default="s"
 
+if confirm "Habilitar autenticação via JumpCloud?" "$_jc_default"; then
+  JUMPCLOUD_ENABLED="true"
+  echo
+  info "Chave de API do JumpCloud."
+  info "JumpCloud → Admin → API Settings → API Key"
+  echo
+  ask JUMPCLOUD_API_KEY "API Key do JumpCloud"
+  ok "JumpCloud habilitado — autenticação com e-mail + CPF ativada."
+else
+  JUMPCLOUD_ENABLED="false"
+  JUMPCLOUD_API_KEY=""
+  ok "JumpCloud desabilitado — autenticação somente via GLPI."
+fi
 
-# ═════════════════════════════════════════════════════════════════════════════
-# RESUMO
-# ═════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+#  ETAPA 8 — CONFIGURAÇÕES DO BOT
+# ══════════════════════════════════════════════════════════════════════════════
+section 8 "Configurações do Bot"
 
+info "Timeout de sessão: tempo (em segundos) sem interação para expirar a sessão."
+info "3600 = 1 h  |  7200 = 2 h  |  86400 = 24 h"
 echo
-echo -e "${BOLD}${BLUE}╔══════════════════════════════════════════════════════════════╗${RESET}"
-echo -e "${BOLD}${BLUE}║                   Resumo da Configuração                    ║${RESET}"
-echo -e "${BOLD}${BLUE}╚══════════════════════════════════════════════════════════════╝${RESET}"
+ask_opt SESSION_TTL_SECONDS "Timeout da sessão (segundos)" "3600"
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  ETAPA 9 — RESUMO
+# ══════════════════════════════════════════════════════════════════════════════
+section 9 "Resumo da Configuração"
+
+_jc_status="Desabilitado"
+[[ "$JUMPCLOUD_ENABLED" == "true" ]] && _jc_status="Habilitado"
+
+echo -e "  ${C_BOLD}Identidade${C_RESET}"
+echo -e "    Empresa          : ${C_GREEN}${BOT_COMPANY_NAME}${C_RESET}"
+echo -e "    Bot              : ${C_GREEN}${BOT_NAME}${C_RESET}"
+echo -e "    Time             : ${C_GREEN}${BOT_SUPPORT_TEAM}${C_RESET}"
 echo
-echo -e "  ${BOLD}PostgreSQL${RESET}"
-echo -e "    Senha mestra          : ${GREEN}${POSTGRES_PASSWORD}${RESET}"
-echo -e "    Senha Evolution DB    : ${GREEN}${EVOLUTION_DB_PASSWORD}${RESET}"
-echo -e "    Senha ChatWoot DB     : ${GREEN}${CHATWOOT_DB_PASSWORD}${RESET}"
+echo -e "  ${C_BOLD}Infraestrutura${C_RESET}"
+echo -e "    PostgreSQL senha : ${C_GREEN}${POSTGRES_PASSWORD}${C_RESET}"
+echo -e "    Evolution DB     : ${C_GREEN}${EVOLUTION_DB_PASSWORD}${C_RESET}"
+echo -e "    ChatWoot DB      : ${C_GREEN}${CHATWOOT_DB_PASSWORD}${C_RESET}"
+echo -e "    Redis senha      : ${C_GREEN}${REDIS_PASSWORD}${C_RESET}"
 echo
-echo -e "  ${BOLD}Redis${RESET}"
-echo -e "    Senha                 : ${GREEN}${REDIS_PASSWORD}${RESET}"
+echo -e "  ${C_BOLD}Evolution API${C_RESET}"
+echo -e "    API Key          : ${C_GREEN}${EVOLUTION_API_KEY}${C_RESET}"
+echo -e "    Instância        : ${C_GREEN}${EVOLUTION_INSTANCE}${C_RESET}"
 echo
-echo -e "  ${BOLD}Evolution API${RESET}"
-echo -e "    API Key               : ${GREEN}${EVOLUTION_API_KEY}${RESET}"
-echo -e "    Instância             : ${GREEN}${EVOLUTION_INSTANCE}${RESET}"
+echo -e "  ${C_BOLD}GLPI${C_RESET}"
+echo -e "    URL              : ${C_GREEN}${GLPI_URL}${C_RESET}"
+echo -e "    Categoria padrão : ${C_GREEN}${GLPI_DEFAULT_CATEGORY_ID}${C_RESET}"
+echo -e "    Onboarding       : ${C_GREEN}${GLPI_ONBOARDING_CATEGORY_ID}${C_RESET}"
 echo
-echo -e "  ${BOLD}GLPI${RESET}"
-echo -e "    URL                   : ${GREEN}${GLPI_URL}${RESET}"
-echo -e "    App-Token             : ${GREEN}${GLPI_APP_TOKEN}${RESET}"
-echo -e "    User-Token            : ${GREEN}${GLPI_USER_TOKEN}${RESET}"
-echo -e "    Categoria padrão (ID) : ${GREEN}${GLPI_DEFAULT_CATEGORY_ID}${RESET}"
-echo -e "    Categoria Onboarding  : ${GREEN}${GLPI_ONBOARDING_CATEGORY_ID}${RESET}"
+echo -e "  ${C_BOLD}ChatWoot${C_RESET}"
+echo -e "    URL              : ${C_GREEN}${CHATWOOT_FRONTEND_URL}${C_RESET}"
+echo -e "    Admin e-mail     : ${C_GREEN}${CHATWOOT_ADMIN_EMAIL}${C_RESET}"
 echo
-echo -e "  ${BOLD}ChatWoot${RESET}"
-echo -e "    URL externa           : ${GREEN}${CHATWOOT_FRONTEND_URL}${RESET}"
-echo -e "    Conta/Empresa         : ${GREEN}${CHATWOOT_ACCOUNT_NAME}${RESET}"
-echo -e "    Admin e-mail          : ${GREEN}${CHATWOOT_ADMIN_EMAIL}${RESET}"
-echo -e "    Admin nome            : ${GREEN}${CHATWOOT_ADMIN_NAME}${RESET}"
-echo -e "    Secret Key Base       : ${GREEN}${CHATWOOT_SECRET_KEY:0:20}...${RESET}"
-echo -e "    API Token             : ${GREEN}${CHATWOOT_API_TOKEN}${RESET}"
-echo -e "    Account ID            : ${GREEN}${CHATWOOT_ACCOUNT_ID}${RESET}"
-echo -e "    Inbox ID              : ${GREEN}${CHATWOOT_INBOX_ID}${RESET}"
-echo -e "    Webhook Secret        : ${GREEN}${CHATWOOT_WEBHOOK_SECRET}${RESET}"
+echo -e "  ${C_BOLD}IA (Claude)${C_RESET}"
+echo -e "    Modelo           : ${C_GREEN}${CLAUDE_MODEL}${C_RESET}"
 echo
-echo -e "  ${BOLD}Anthropic${RESET}"
-echo -e "    API Key               : ${GREEN}${ANTHROPIC_API_KEY}${RESET}"
-echo -e "    Modelo                : ${GREEN}${CLAUDE_MODEL}${RESET}"
+echo -e "  ${C_BOLD}JumpCloud${C_RESET}"
+echo -e "    Autenticação     : ${C_GREEN}${_jc_status}${C_RESET}"
 echo
-echo -e "  ${BOLD}Bot${RESET}"
-echo -e "    Timeout de sessão     : ${GREEN}${SESSION_TTL_SECONDS}s${RESET}"
-echo -e "    Escala CSAT           : ${GREEN}1 a ${CSAT_SCALE}${RESET}"
+echo -e "  ${C_BOLD}Bot${C_RESET}"
+echo -e "    Timeout sessão   : ${C_GREEN}${SESSION_TTL_SECONDS}s${C_RESET}"
 echo
 
 if ! confirm "Confirmar e salvar o arquivo .env?"; then
-  echo
-  print_warn "Configuração cancelada. Nenhum arquivo foi alterado."
+  warn "Configuração cancelada. Nenhum arquivo foi alterado."
   exit 0
 fi
 
-# ═════════════════════════════════════════════════════════════════════════════
-# GERA O .env
-# ═════════════════════════════════════════════════════════════════════════════
-
+# ══════════════════════════════════════════════════════════════════════════════
+#  SALVA O .env
+# ══════════════════════════════════════════════════════════════════════════════
 cat > "$ENV_FILE" <<EOF
 # Gerado pelo install.sh em $(date '+%Y-%m-%d %H:%M:%S')
-# Para reconfigurar, execute: ./install.sh
+# Para reconfigurar: ./install.sh
+
+# ─── Identidade do Bot ────────────────────────────────────────────────────────
+BOT_COMPANY_NAME="${BOT_COMPANY_NAME}"
+BOT_NAME="${BOT_NAME}"
+BOT_SUPPORT_TEAM="${BOT_SUPPORT_TEAM}"
 
 # ─── PostgreSQL ───────────────────────────────────────────────────────────────
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD}"
@@ -406,280 +432,235 @@ CHATWOOT_WEBHOOK_SECRET="${CHATWOOT_WEBHOOK_SECRET}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}"
 CLAUDE_MODEL="${CLAUDE_MODEL}"
 
+# ─── JumpCloud ────────────────────────────────────────────────────────────────
+JUMPCLOUD_ENABLED="${JUMPCLOUD_ENABLED}"
+JUMPCLOUD_API_KEY="${JUMPCLOUD_API_KEY}"
+
 # ─── Bot ──────────────────────────────────────────────────────────────────────
 SESSION_TTL_SECONDS="${SESSION_TTL_SECONDS}"
-CSAT_SCALE="${CSAT_SCALE}"
+CSAT_SCALE="5"
 EOF
 
-print_ok ".env salvo em: $ENV_FILE"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Atualiza scripts/init-db.sql com as senhas configuradas
-# ─────────────────────────────────────────────────────────────────────────────
+# ─── init-db.sql ──────────────────────────────────────────────────────────────
 mkdir -p "$SCRIPT_DIR/scripts"
-INIT_SQL="$SCRIPT_DIR/scripts/init-db.sql"
-
-cat > "$INIT_SQL" <<EOF
+cat > "$SCRIPT_DIR/scripts/init-db.sql" <<EOF
 -- Gerado pelo install.sh em $(date '+%Y-%m-%d %H:%M:%S')
--- Criação dos usuários e bancos para Evolution API e ChatWoot
-
--- Evolution API
 CREATE USER evolution WITH PASSWORD '${EVOLUTION_DB_PASSWORD}';
 CREATE DATABASE evolutiondb OWNER evolution;
 GRANT ALL PRIVILEGES ON DATABASE evolutiondb TO evolution;
 
--- ChatWoot
 CREATE USER chatwoot WITH PASSWORD '${CHATWOOT_DB_PASSWORD}';
 CREATE DATABASE chatwoot_production OWNER chatwoot;
 GRANT ALL PRIVILEGES ON DATABASE chatwoot_production TO chatwoot;
 EOF
 
-print_ok "scripts/init-db.sql atualizado com as senhas configuradas."
-
-# ═════════════════════════════════════════════════════════════════════════════
-# BAIXAR EVOLUTION API 2.3.7 (fonte local para build)
-# ═════════════════════════════════════════════════════════════════════════════
-
+# ══════════════════════════════════════════════════════════════════════════════
+#  EVOLUTION API — DOWNLOAD / VERIFICAÇÃO
+# ══════════════════════════════════════════════════════════════════════════════
 EVOLUTION_SRC="$SCRIPT_DIR/evolution-api-src"
 EVOLUTION_URL="https://github.com/EvolutionAPI/evolution-api/archive/refs/tags/2.3.7.tar.gz"
 EVOLUTION_TAR="$SCRIPT_DIR/evolution-api-2.3.7.tar.gz"
 
+clear
 echo
-echo -e "${BOLD}${BLUE}╔══════════════════════════════════════════════════════════════╗${RESET}"
-echo -e "${BOLD}${BLUE}║                  Evolution API 2.3.7                        ║${RESET}"
-echo -e "${BOLD}${BLUE}╚══════════════════════════════════════════════════════════════╝${RESET}"
+echo -e "  ${C_BOLD}${C_BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+echo -e "  ${C_BOLD}  GLPI WhatsApp Bot${C_RESET}  ${C_DIM}•  Preparação${C_RESET}"
+echo -e "  ${C_BOLD}${C_CYAN}  Salvando configurações e preparando fontes${C_RESET}"
+echo -e "  ${C_BOLD}${C_BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
 echo
+
+step "Salvando .env" bash -c "echo ok"
+step "Gerando scripts/init-db.sql" bash -c "echo ok"
 
 if [[ -d "$EVOLUTION_SRC" && -f "$EVOLUTION_SRC/Dockerfile" ]]; then
-  print_ok "Fonte da Evolution API já presente em evolution-api-src/. Pulando download."
+  ok "Evolution API já presente — pulando download."
 else
-  print_info "Baixando Evolution API 2.3.7 do GitHub..."
-  print_info "Origem: $EVOLUTION_URL"
-  echo
-
-  # Verifica ferramenta de download disponível
   if command -v curl &>/dev/null; then
-    curl -L --progress-bar "$EVOLUTION_URL" -o "$EVOLUTION_TAR"
+    step "Baixando Evolution API 2.3.7" \
+      curl -fsSL "$EVOLUTION_URL" -o "$EVOLUTION_TAR"
   elif command -v wget &>/dev/null; then
-    wget --show-progress -q "$EVOLUTION_URL" -O "$EVOLUTION_TAR"
+    step "Baixando Evolution API 2.3.7" \
+      wget -q "$EVOLUTION_URL" -O "$EVOLUTION_TAR"
   else
-    print_err "curl ou wget não encontrado. Instale um deles e tente novamente."
-    print_err "  sudo apt-get install curl"
-    exit 1
+    err "curl ou wget não encontrado. Execute: sudo apt-get install curl"; exit 1
   fi
 
-  print_ok "Download concluído."
-  print_info "Extraindo arquivos..."
+  step "Extraindo Evolution API" bash -c "
+    mkdir -p '${EVOLUTION_SRC}'
+    tar -xzf '${EVOLUTION_TAR}' --strip-components=1 -C '${EVOLUTION_SRC}'
+    rm -f '${EVOLUTION_TAR}'
+  "
 
-  mkdir -p "$EVOLUTION_SRC"
-  tar -xzf "$EVOLUTION_TAR" --strip-components=1 -C "$EVOLUTION_SRC"
-  rm -f "$EVOLUTION_TAR"
-
-  if [[ ! -f "$EVOLUTION_SRC/Dockerfile" ]]; then
-    print_err "Dockerfile não encontrado após extração. Verifique o arquivo baixado."
-    exit 1
-  fi
-
-  print_ok "Evolution API 2.3.7 extraída em evolution-api-src/."
-
-  # ── Patch SSL: Prisma tenta baixar binários de binaries.prisma.sh durante o
-  # build e falha com "unable to get local issuer certificate" em alguns
-  # ambientes corporativos/WSL. NODE_TLS_REJECT_UNAUTHORIZED=0 resolve só
-  # nessa etapa do build sem afetar o runtime.
-  print_info "Aplicando patch SSL no Dockerfile da Evolution API..."
-  sed -i \
-    's|RUN ./Docker/scripts/generate_database.sh|ENV NODE_TLS_REJECT_UNAUTHORIZED=0\nRUN ./Docker/scripts/generate_database.sh|' \
-    "$EVOLUTION_SRC/Dockerfile"
-
-  # Confirma que o patch foi aplicado
-  if grep -q "NODE_TLS_REJECT_UNAUTHORIZED" "$EVOLUTION_SRC/Dockerfile"; then
-    print_ok "Patch SSL aplicado com sucesso."
-  else
-    print_warn "Patch SSL não foi aplicado (linha alvo não encontrada). Tentando método alternativo..."
-    # Método alternativo: injeta a ENV no início da seção de build
-    sed -i '/generate_database/i ENV NODE_TLS_REJECT_UNAUTHORIZED=0' "$EVOLUTION_SRC/Dockerfile"
-  fi
+  # Patch SSL para ambientes corporativos/WSL
+  step "Aplicando patch SSL (Dockerfile)" bash -c "
+    if ! grep -q 'NODE_TLS_REJECT_UNAUTHORIZED' '${EVOLUTION_SRC}/Dockerfile'; then
+      sed -i 's|RUN ./Docker/scripts/generate_database.sh|ENV NODE_TLS_REJECT_UNAUTHORIZED=0\nRUN ./Docker/scripts/generate_database.sh|' \
+        '${EVOLUTION_SRC}/Dockerfile' || \
+      sed -i '/generate_database/i ENV NODE_TLS_REJECT_UNAUTHORIZED=0' \
+        '${EVOLUTION_SRC}/Dockerfile'
+    fi
+  "
 fi
 
-# ═════════════════════════════════════════════════════════════════════════════
-# OPÇÕES DE EXECUÇÃO
-# ═════════════════════════════════════════════════════════════════════════════
-
+# ══════════════════════════════════════════════════════════════════════════════
+#  SUBIR SERVIÇOS?
+# ══════════════════════════════════════════════════════════════════════════════
 echo
-echo -e "${BOLD}${BLUE}╔══════════════════════════════════════════════════════════════╗${RESET}"
-echo -e "${BOLD}${BLUE}║                    Próximos Passos                          ║${RESET}"
-echo -e "${BOLD}${BLUE}╚══════════════════════════════════════════════════════════════╝${RESET}"
-echo
-
 if ! command -v docker &>/dev/null; then
-  print_warn "Docker não encontrado no PATH. Instale o Docker antes de continuar."
-  echo
+  warn "Docker não encontrado no PATH."
+  warn "Instale o Docker e execute: docker compose up -d"
+  echo; exit 0
 fi
 
-if confirm "Subir os serviços com Docker Compose agora?"; then
+echo
+if ! confirm "Subir todos os serviços agora com Docker Compose?"; then
   echo
-  print_info "Iniciando serviços na ordem correta..."
+  info "Para subir manualmente:"
+  echo -e "  ${C_DIM}docker compose up -d postgres redis${C_RESET}"
+  echo -e "  ${C_DIM}docker compose build evolution-api && docker compose up -d evolution-api${C_RESET}"
+  echo -e "  ${C_DIM}docker compose up -d chatwoot-web chatwoot-worker${C_RESET}"
+  echo -e "  ${C_DIM}docker compose build bot && docker compose up -d bot${C_RESET}"
   echo
+  info "Para reconfigurar: ${C_BOLD}./install.sh${C_RESET}"
+  exit 0
+fi
 
-  cd "$SCRIPT_DIR"
+# ══════════════════════════════════════════════════════════════════════════════
+#  EXECUÇÃO DOS SERVIÇOS
+# ══════════════════════════════════════════════════════════════════════════════
+clear
+echo
+echo -e "  ${C_BOLD}${C_BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+echo -e "  ${C_BOLD}  GLPI WhatsApp Bot${C_RESET}  ${C_DIM}•  Instalação${C_RESET}"
+echo -e "  ${C_BOLD}${C_CYAN}  Subindo serviços Docker${C_RESET}"
+echo -e "  ${C_BOLD}${C_BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+echo
 
-  echo -e "  ${BOLD}[1/5]${RESET} PostgreSQL + Redis..."
+cd "$SCRIPT_DIR"
+
+step "PostgreSQL + Redis" bash -c "
   docker compose up -d postgres redis
-  echo -e "  ${DIM}Aguardando bancos ficarem saudáveis...${RESET}"
-  sleep 5
+  # Aguarda health check
+  for i in \$(seq 1 30); do
+    docker compose ps postgres | grep -q '(healthy)' && \
+    docker compose ps redis   | grep -q '(healthy)' && break
+    sleep 2
+  done
+"
 
-  echo -e "  ${BOLD}[2/5]${RESET} Evolution API (build local — pode demorar alguns minutos)..."
+step "Evolution API (build — pode demorar)" bash -c "
   docker compose build evolution-api
   docker compose up -d evolution-api
+"
 
-  echo -e "  ${BOLD}[3/5]${RESET} ChatWoot — build + banco + migrações..."
+step "ChatWoot — build da imagem" bash -c "
   docker compose build chatwoot-web
+"
 
-  # Concede superuser ao chatwoot para criar extensão pg_stat_statements
+step "ChatWoot — permissão superuser no DB" bash -c "
   docker compose exec postgres psql -U postgres \
-    -c "ALTER USER chatwoot WITH SUPERUSER;" 2>/dev/null || true
+    -c \"ALTER USER chatwoot WITH SUPERUSER;\" 2>/dev/null || true
+"
 
-  # Executa migrações (cria todas as tabelas)
-  print_info "Rodando migrações do banco (pode levar 1-2 minutos)..."
+step "ChatWoot — migrações do banco" bash -c "
   docker compose run --rm chatwoot-web bundle exec rails db:migrate
+"
 
-  # Cria conta e usuário administrador automaticamente
-  print_info "Criando conta e administrador no ChatWoot..."
+step "ChatWoot — criando conta admin" bash -c "
   docker compose run --rm \
-    -e CW_ACCOUNT_NAME="${CHATWOOT_ACCOUNT_NAME}" \
-    -e CW_ADMIN_NAME="${CHATWOOT_ADMIN_NAME}" \
-    -e CW_ADMIN_EMAIL="${CHATWOOT_ADMIN_EMAIL}" \
-    -e CW_ADMIN_PASSWORD="${CHATWOOT_ADMIN_PASSWORD}" \
+    -e CW_ACCOUNT_NAME='${CHATWOOT_ACCOUNT_NAME}' \
+    -e CW_ADMIN_NAME='${CHATWOOT_ADMIN_NAME}' \
+    -e CW_ADMIN_EMAIL='${CHATWOOT_ADMIN_EMAIL}' \
+    -e CW_ADMIN_PASSWORD='${CHATWOOT_ADMIN_PASSWORD}' \
     chatwoot-web bundle exec rails runner '
-      email = ENV["CW_ADMIN_EMAIL"]
-      if User.exists?(email: email)
-        puts "Usuário #{email} já existe — pulando criação."
-      else
-        account = Account.find_or_create_by!(name: ENV["CW_ACCOUNT_NAME"])
+      email = ENV[\"CW_ADMIN_EMAIL\"]
+      unless User.exists?(email: email)
+        account = Account.find_or_create_by!(name: ENV[\"CW_ACCOUNT_NAME\"])
         user = User.new(
-          name:                  ENV["CW_ADMIN_NAME"],
-          email:                 email,
-          password:              ENV["CW_ADMIN_PASSWORD"],
-          password_confirmation: ENV["CW_ADMIN_PASSWORD"]
+          name: ENV[\"CW_ADMIN_NAME\"], email: email,
+          password: ENV[\"CW_ADMIN_PASSWORD\"],
+          password_confirmation: ENV[\"CW_ADMIN_PASSWORD\"]
         )
-        user.skip_confirmation!
-        user.save!
+        user.skip_confirmation!; user.save!
         AccountUser.create!(account: account, user: user, role: :administrator)
-        puts "Admin #{email} criado com sucesso!"
       end
     '
+"
 
+step "ChatWoot — iniciando serviços web + worker" bash -c "
   docker compose up -d chatwoot-web chatwoot-worker
+"
 
-  echo -e "  ${BOLD}[4/5]${RESET} Configurando ChatWoot (token + inbox + webhook)..."
-  print_info "Aguardando ChatWoot inicializar..."
-  for i in $(seq 1 40); do
-    HTTP=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:3001/auth/sign_in" \
-      -H "Content-Type: application/json" \
-      -d "{\"email\":\"${CHATWOOT_ADMIN_EMAIL}\",\"password\":\"${CHATWOOT_ADMIN_PASSWORD}\"}" \
-      2>/dev/null || echo "000")
-    if [[ "$HTTP" == "200" ]]; then break; fi
-    echo -n "."
+step "ChatWoot — aguardando inicialização" bash -c "
+  for i in \$(seq 1 40); do
+    HTTP=\$(curl -s -o /dev/null -w '%{http_code}' 'http://localhost:3001/auth/sign_in' \
+      -H 'Content-Type: application/json' \
+      -d '{\"email\":\"${CHATWOOT_ADMIN_EMAIL}\",\"password\":\"${CHATWOOT_ADMIN_PASSWORD}\"}' 2>/dev/null || echo 000)
+    [[ \"\$HTTP\" == '200' ]] && exit 0
     sleep 3
   done
-  echo
+  exit 1
+"
 
-  # Login para obter token e account_id
-  CW_LOGIN=$(curl -s "http://localhost:3001/auth/sign_in" \
-    -H "Content-Type: application/json" \
-    -d "{\"email\":\"${CHATWOOT_ADMIN_EMAIL}\",\"password\":\"${CHATWOOT_ADMIN_PASSWORD}\"}" \
-    2>/dev/null || echo "{}")
-  CHATWOOT_API_TOKEN=$(echo "$CW_LOGIN" | python3 -c "import sys,json; d=json.load(sys.stdin).get('data',{}); print(d.get('access_token',''))" 2>/dev/null || echo "")
-  CHATWOOT_ACCOUNT_ID=$(echo "$CW_LOGIN" | python3 -c "import sys,json; d=json.load(sys.stdin).get('data',{}); print(d.get('account_id',''))" 2>/dev/null || echo "")
+step "ChatWoot — obtendo token + criando inbox" bash -c "
+  CW_LOGIN=\$(curl -s 'http://localhost:3001/auth/sign_in' \
+    -H 'Content-Type: application/json' \
+    -d '{\"email\":\"${CHATWOOT_ADMIN_EMAIL}\",\"password\":\"${CHATWOOT_ADMIN_PASSWORD}\"}' 2>/dev/null || echo '{}')
 
-  if [[ -z "$CHATWOOT_API_TOKEN" ]]; then
-    print_warn "Não foi possível obter o token do ChatWoot automaticamente."
-    print_warn "Acesse ${CHATWOOT_FRONTEND_URL}, copie o token em Perfil → Access Token"
-    print_warn "e rode ./install.sh novamente para concluir a configuração."
-  else
-    print_ok "Login OK — Account ID: ${CHATWOOT_ACCOUNT_ID}"
+  TOKEN=\$(echo \"\$CW_LOGIN\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('data',{}).get('access_token',''))\" 2>/dev/null || echo '')
+  ACCTID=\$(echo \"\$CW_LOGIN\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('data',{}).get('account_id',''))\" 2>/dev/null || echo '')
 
-    # Cria inbox do tipo API
-    CW_INBOX=$(curl -s -X POST "http://localhost:3001/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/inboxes" \
-      -H "api_access_token: ${CHATWOOT_API_TOKEN}" \
-      -H "Content-Type: application/json" \
-      -d "{\"name\":\"WhatsApp Bot\",\"channel\":{\"type\":\"api\"}}" \
-      2>/dev/null || echo "{}")
-    CHATWOOT_INBOX_ID=$(echo "$CW_INBOX" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+  [[ -z \"\$TOKEN\" ]] && exit 0
 
-    if [[ -n "$CHATWOOT_INBOX_ID" ]]; then
-      print_ok "Inbox criada — ID: ${CHATWOOT_INBOX_ID}"
-    else
-      print_warn "Inbox já existe ou não foi possível criar. Verifique em ${CHATWOOT_FRONTEND_URL}."
-      CHATWOOT_INBOX_ID="1"
-    fi
+  # Cria inbox
+  CW_INBOX=\$(curl -s -X POST \"http://localhost:3001/api/v1/accounts/\${ACCTID}/inboxes\" \
+    -H \"api_access_token: \${TOKEN}\" \
+    -H 'Content-Type: application/json' \
+    -d '{\"name\":\"WhatsApp Bot\",\"channel\":{\"type\":\"api\"}}' 2>/dev/null || echo '{}')
+  INBOX_ID=\$(echo \"\$CW_INBOX\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('id',''))\" 2>/dev/null || echo '')
+  [[ -z \"\$INBOX_ID\" ]] && INBOX_ID=1
 
-    # Registra webhook
-    CW_WH=$(curl -s -o /dev/null -w "%{http_code}" \
-      -X POST "http://localhost:3001/api/v1/accounts/${CHATWOOT_ACCOUNT_ID}/webhooks" \
-      -H "api_access_token: ${CHATWOOT_API_TOKEN}" \
-      -H "Content-Type: application/json" \
-      -d "{\"url\":\"http://bot:3000/webhook/chatwoot\",\"subscriptions\":[\"conversation_status_changed\",\"message_created\"]}" \
-      2>/dev/null || echo "000")
-    if [[ "$CW_WH" == "200" || "$CW_WH" == "201" ]]; then
-      print_ok "Webhook registrado com sucesso!"
-    else
-      print_warn "Webhook retornou HTTP ${CW_WH} (pode já existir — ignorando)."
-    fi
+  # Registra webhook
+  curl -s -o /dev/null -X POST \"http://localhost:3001/api/v1/accounts/\${ACCTID}/webhooks\" \
+    -H \"api_access_token: \${TOKEN}\" \
+    -H 'Content-Type: application/json' \
+    -d '{\"url\":\"http://bot:3000/webhook/chatwoot\",\"subscriptions\":[\"conversation_status_changed\",\"message_created\"]}' 2>/dev/null || true
 
-    # Atualiza o .env com os valores reais
-    sed -i "s|CHATWOOT_API_TOKEN=.*|CHATWOOT_API_TOKEN=\"${CHATWOOT_API_TOKEN}\"|" "$ENV_FILE"
-    sed -i "s|CHATWOOT_ACCOUNT_ID=.*|CHATWOOT_ACCOUNT_ID=\"${CHATWOOT_ACCOUNT_ID}\"|" "$ENV_FILE"
-    sed -i "s|CHATWOOT_INBOX_ID=.*|CHATWOOT_INBOX_ID=\"${CHATWOOT_INBOX_ID}\"|" "$ENV_FILE"
-    print_ok ".env atualizado com token, account_id e inbox_id."
-  fi
+  # Atualiza .env
+  sed -i \"s|CHATWOOT_API_TOKEN=.*|CHATWOOT_API_TOKEN=\\\"\${TOKEN}\\\"|\"     '${ENV_FILE}'
+  sed -i \"s|CHATWOOT_ACCOUNT_ID=.*|CHATWOOT_ACCOUNT_ID=\\\"\${ACCTID}\\\"|\"  '${ENV_FILE}'
+  sed -i \"s|CHATWOOT_INBOX_ID=.*|CHATWOOT_INBOX_ID=\\\"\${INBOX_ID}\\\"|\"    '${ENV_FILE}'
+"
 
-  echo -e "  ${BOLD}[5/5]${RESET} Bot (build + start com configuração final)..."
+step "Bot — build + start" bash -c "
   docker compose build bot
   docker compose up -d bot
+"
 
-  # Garante que o webhook de instância da Evolution API está desabilitado.
-  # Sem isso, tanto o webhook global quanto o de instância disparam, gerando
-  # mensagens duplicadas no bot.
-  print_info "Desabilitando webhook de instância da Evolution API (evita duplicatas)..."
-  EVO_WH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X DELETE "http://localhost:8080/webhook/${EVOLUTION_INSTANCE}" \
-    -H "apikey: ${EVOLUTION_API_KEY}" 2>/dev/null || echo "000")
-  if [[ "$EVO_WH_STATUS" == "200" || "$EVO_WH_STATUS" == "201" ]]; then
-    print_ok "Webhook de instância removido."
-  else
-    # Tenta via PUT para garantir que está desabilitado
-    curl -s -X PUT "http://localhost:8080/webhook/${EVOLUTION_INSTANCE}" \
-      -H "apikey: ${EVOLUTION_API_KEY}" \
-      -H "Content-Type: application/json" \
-      -d "{\"webhook\":{\"enabled\":false}}" > /dev/null 2>&1 || true
-    print_ok "Webhook de instância desabilitado."
-  fi
+step "Evolution API — desabilitar webhook de instância" bash -c "
+  sleep 3
+  curl -s -o /dev/null -X DELETE 'http://localhost:8080/webhook/${EVOLUTION_INSTANCE}' \
+    -H 'apikey: ${EVOLUTION_API_KEY}' 2>/dev/null || true
+  curl -s -o /dev/null -X PUT 'http://localhost:8080/webhook/${EVOLUTION_INSTANCE}' \
+    -H 'apikey: ${EVOLUTION_API_KEY}' \
+    -H 'Content-Type: application/json' \
+    -d '{\"webhook\":{\"enabled\":false}}' 2>/dev/null || true
+"
 
-  echo -e "  ${DIM}Verificando status...${RESET}"
-  docker compose ps
-
-  echo
-  print_ok "Instalação concluída!"
-  echo
-  print_info "ChatWoot:      ${CHATWOOT_FRONTEND_URL}"
-  print_info "Evolution API: http://localhost:8080/manager"
-  echo
-  print_warn "Último passo: escaneie o QR Code do WhatsApp em http://localhost:8080/manager"
-  echo
-else
-  echo
-  print_info "Para subir os serviços manualmente:"
-  echo
-  echo -e "  ${DIM}docker compose up -d postgres redis${RESET}"
-  echo -e "  ${DIM}docker compose build evolution-api && docker compose up -d evolution-api${RESET}"
-  echo -e "  ${DIM}docker compose up -d chatwoot-web chatwoot-worker${RESET}"
-  echo -e "  ${DIM}docker compose build bot && docker compose up -d bot${RESET}"
-  echo
-fi
-
-print_info "Para reconfigurar qualquer valor: ${BOLD}./install.sh${RESET}"
-print_info "Documentação completa: ${BOLD}SETUP.md${RESET}"
+# ══════════════════════════════════════════════════════════════════════════════
+#  CONCLUÍDO
+# ══════════════════════════════════════════════════════════════════════════════
 echo
-print_ok "Instalação concluída!"
+echo -e "  ${C_BOLD}${C_BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+echo -e "  ${C_BOLD}${C_GREEN}  ✓  Instalação concluída!${C_RESET}"
+echo -e "  ${C_BOLD}${C_BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+echo
+echo -e "  ${C_BOLD}Acesso:${C_RESET}"
+echo -e "    ChatWoot      → ${C_CYAN}${CHATWOOT_FRONTEND_URL}${C_RESET}"
+echo -e "    Evolution API → ${C_CYAN}http://localhost:8080/manager${C_RESET}"
+echo
+echo -e "  ${C_BOLD}${C_YELLOW}Próximo passo:${C_RESET}"
+echo -e "  Escaneie o QR Code do WhatsApp em ${C_CYAN}http://localhost:8080/manager${C_RESET}"
+echo
+info "Para reconfigurar qualquer valor: ${C_BOLD}./install.sh${C_RESET}"
 echo

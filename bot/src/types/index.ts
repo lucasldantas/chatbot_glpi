@@ -2,9 +2,7 @@
 
 export type BotState =
   | 'WAITING_EMAIL'
-  | 'WAITING_ANON_CONFIRM'
-  | 'WAITING_ANON_NAME'
-  | 'WAITING_ANON_PERSONAL_EMAIL'
+  | 'WAITING_CPF'
   | 'MENU'
   | 'TICKET_TITLE'
   | 'TICKET_DESCRIPTION'
@@ -39,6 +37,7 @@ export interface Session {
   ticketDraft: TicketDraft;
   chatwootContactId?: number;
   csatConversationId?: number;
+  cpfAttempts?: number;
   lastActivityAt: number;
 }
 

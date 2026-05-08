@@ -81,16 +81,8 @@ export async function handleEvolutionWebhook(req: Request, res: Response): Promi
     }
 
     switch (session.state) {
-      case 'WAITING_ANON_CONFIRM':
-        await identificationFlow.handleAnonConfirm(phone, text);
-        break;
-
-      case 'WAITING_ANON_NAME':
-        await identificationFlow.handleAnonName(phone, text);
-        break;
-
-      case 'WAITING_ANON_PERSONAL_EMAIL':
-        await identificationFlow.handleAnonPersonalEmail(phone, text, session);
+      case 'WAITING_CPF':
+        await identificationFlow.handleCpfInput(phone, text, session);
         break;
 
       case 'MENU':

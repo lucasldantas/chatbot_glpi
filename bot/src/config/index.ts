@@ -44,4 +44,15 @@ export const config = {
     model: optional('CLAUDE_MODEL', 'claude-sonnet-4-6'),
   },
 
+  jumpcloud: {
+    enabled: optional('JUMPCLOUD_ENABLED', 'false') === 'true',
+    apiKey: optional('JUMPCLOUD_API_KEY', ''),
+  },
+
+  bot: {
+    companyName: optional('BOT_COMPANY_NAME', 'nossa empresa'),
+    botName: optional('BOT_NAME', 'Assistente'),
+    supportTeam: optional('BOT_SUPPORT_TEAM', 'Suporte TI'),
+  },
+
 } as const;
