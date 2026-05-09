@@ -659,8 +659,10 @@ echo -e "  ${C_BOLD}Acesso:${C_RESET}"
 echo -e "    ChatWoot      → ${C_CYAN}${CHATWOOT_FRONTEND_URL}${C_RESET}"
 echo -e "    Evolution API → ${C_CYAN}http://localhost:8080/manager${C_RESET}"
 echo
-echo -e "  ${C_BOLD}${C_YELLOW}Próximo passo:${C_RESET}"
-echo -e "  Escaneie o QR Code do WhatsApp em ${C_CYAN}http://localhost:8080/manager${C_RESET}"
+  echo -e "  ${C_BOLD}${C_YELLOW}Próximos passos:${C_RESET}"
+  echo -e "  1. Acesse ${C_CYAN}http://localhost:8080/manager${C_RESET}"
+  echo -e "  2. Crie a instância com o nome ${C_BOLD}${EVOLUTION_INSTANCE}${C_RESET}"
+  echo -e "  3. Escaneie o QR Code com o WhatsApp"
 echo
 info "Para reconfigurar qualquer valor: ${C_BOLD}./install.sh${C_RESET}"
 echo
